@@ -8,6 +8,7 @@ const PUBLIC_PATHS = [
   "/reset-password",
   "/pending-approval",
   "/auth/callback",
+  "/auth/confirm",
 ];
 
 export async function middleware(request: NextRequest) {

@@ -1,11 +1,11 @@
 import { Typography } from "@mui/material";
 import ISPManager from "@/components/isps/ISPManager";
-import { getISPs } from "@/actions/isps";
+import { getISPsWithCounts } from "@/actions/isps";
 import { requireRole } from "@/lib/auth";
 
 export default async function ISPsPage() {
   await requireRole(["admin", "manager"]);
-  const isps = await getISPs();
+  const isps = await getISPsWithCounts();
 
   return (
     <>
@@ -13,7 +13,8 @@ export default async function ISPsPage() {
         ISPs
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Manage Internet Service Provider records.
+        Create an ISP to set up a separate CRM table. Import customers for each
+        ISP, then view them on Master CRM.
       </Typography>
       <ISPManager isps={isps} />
     </>

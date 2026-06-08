@@ -24,6 +24,18 @@ export interface ISP {
   updated_at: string;
 }
 
+export interface ISPColumn {
+  id: string;
+  isp_id: string;
+  column_key: string;
+  label: string;
+  field_type: "text" | "date" | "phone" | "number";
+  sort_order: number;
+  is_primary: boolean;
+  used_for_matching: boolean;
+  created_at: string;
+}
+
 export interface Customer {
   id: string;
   isp_id: string | null;
@@ -40,6 +52,7 @@ export interface Customer {
   install_complete: string | null;
   sales_rep_id: string | null;
   isp_notes: string | null;
+  custom_fields?: Record<string, string | null> | null;
   assigned_team: Team;
   assigned_user_id: string | null;
   call_attempt_number: number;

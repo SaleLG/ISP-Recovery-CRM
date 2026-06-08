@@ -84,6 +84,35 @@ export function autoMapColumns(headers: string[]): Record<string, string> {
   return mapping;
 }
 
+/** Map spreadsheet headers to per-ISP column keys */
+export function autoMapToISPColumns(
+  headers: string[],
+  ispColumns: { column_key: string; label: string }[]
+): Record<string, string> {
+  const mapping: Record<string, string> = {};
+  const labelToKey = new Map(
+    ispColumns.map((c) => [normalizeHeader(c.label), c.column_key])
+  );
+  const keySet = new Set(ispColumns.map((c) => c.column_key));
+
+  for (const header of headers) {
+    const normalized = normalizeHeader(header);
+    if (labelToKey.has(normalized)) {
+      mapping[header] = labelToKey.get(normalized)!;
+      continue;
+    }
+    if (keySet.has(normalized.replace(/\s+/g, "_"))) {
+      mapping[header] = normalized.replace(/\s+/g, "_");
+      continue;
+    }
+    const alias = COLUMN_ALIASES[normalized];
+    if (alias && keySet.has(alias)) {
+      mapping[header] = alias;
+    }
+  }
+  return mapping;
+}
+
 function formatDateValue(value: string | null): string | null {
   if (!value) return null;
   const parsed = new Date(value);
@@ -131,10 +160,18 @@ export function buildPreview(
 }
 
 export function validateMappedRow(
-  mapped: Record<string, string | null>
+  mapped: Record<string, string | null>,
+  requiredKeys: string[] = []
 ): string | null {
-  if (!mapped.full_name && !mapped.phone && !mapped.account_number) {
-    return "Row must have at least a name, phone, or account number";
+  for (const key of requiredKeys) {
+    if (!mapped[key]) {
+      return `Missing required field: ${key}`;
+    }
+  }
+
+  const hasAnyValue = Object.values(mapped).some((v) => v);
+  if (!hasAnyValue) {
+    return "Row has no mapped data";
   }
   return null;
 }

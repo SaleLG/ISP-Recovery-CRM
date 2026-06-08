@@ -1,9 +1,10 @@
 "use server";
 
 import { createServerClient } from "@supabase/ssr";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSiteUrl } from "@/lib/siteUrl";
 
 async function createAuthClient(rememberMe = false) {
   const cookieStore = await cookies();
@@ -32,13 +33,6 @@ async function createAuthClient(rememberMe = false) {
       },
     }
   );
-}
-
-async function getSiteUrl() {
-  const headersList = await headers();
-  const host = headersList.get("host") || "localhost:3000";
-  const protocol = host.includes("localhost") ? "http" : "https";
-  return `${protocol}://${host}`;
 }
 
 export async function signIn(
@@ -118,7 +112,7 @@ export async function requestPasswordReset(email: string) {
   const siteUrl = await getSiteUrl();
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${siteUrl}/auth/callback?next=/reset-password`,
+    redirectTo: `${siteUrl}/auth/confirm?next=/reset-password`,
   });
 
   if (error) return { error: error.message };

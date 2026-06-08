@@ -100,7 +100,7 @@ const doc = new Document({
           "This guide explains how to use the ISP CRM application for Miller Bros Sales Loss Recovery Division. It covers daily workflows for admins, managers, Senior Sales agents, and Recovery agents."
         ),
         para("Application: ISP CRM"),
-        para("Version: 1.0"),
+        para(`Version: 1.0  |  Generated: ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`),
 
         heading("1. What This App Does", HeadingLevel.HEADING_2),
         para(
@@ -119,20 +119,20 @@ const doc = new Document({
 
         heading("2. Getting Started", HeadingLevel.HEADING_2),
         heading("2.1 Logging In", HeadingLevel.HEADING_3),
-        numbered("Open the CRM in your browser (e.g. http://localhost:3000)"),
+        numbered("Open the CRM in your browser (your Netlify URL or http://localhost:3000 for local use)"),
         numbered("Enter your email and password on the Login page"),
         numbered('Optional: check "Remember me" to stay signed in'),
         numbered("Click Sign In"),
         para(
-          "If you forgot your password, click Forgot Password and follow the email link to reset it."
+          "If you forgot your password, click Forgot Password, enter your email, and follow the reset link sent to your inbox. The link opens a page where you set a new password."
         ),
 
         heading("2.2 Signing Up (New Users)", HeadingLevel.HEADING_3),
         numbered("Click Sign Up on the login page"),
-        numbered("Enter your full name, email, password, role, and team"),
+        numbered("Enter your full name, email, and password"),
         numbered("Submit the form"),
         para(
-          "New accounts are inactive until an admin approves them on the Users page. You will see a Pending Approval screen until activated."
+          "New accounts are created as Senior Sales users and remain inactive until an admin approves them on the Users page. You will see a Pending Approval screen until activated. The admin sets your final role (Admin, Manager, Senior Sales, or Recovery) when approving you."
         ),
 
         heading("2.3 User Roles", HeadingLevel.HEADING_3),
@@ -374,9 +374,11 @@ const doc = new Document({
         para("Who: Admin"),
         para("Manage who can access the CRM:"),
         numbered("View all registered users"),
-        numbered("Approve new signups (set is_active = true)"),
-        numbered("Change roles (admin, manager, senior_sales, recovery)"),
-        numbered("Assign teams (Senior Sales Team or Recovery Team)"),
+        numbered("Approve new signups (activate the account)"),
+        numbered("Change roles: admin, manager, senior_sales, or recovery"),
+        numbered(
+          "Team is set automatically from role — Recovery role goes to Recovery Team; all other roles go to Senior Sales Team"
+        ),
         numbered("Deactivate users who should no longer access the system"),
 
         heading("13. Profile Page", HeadingLevel.HEADING_2),

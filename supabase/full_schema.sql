@@ -1,14 +1,15 @@
--- ISP CRM Schema
--- Run this in Supabase SQL Editor
+-- ============================================================
+-- ISP CRM — Complete Database Schema
+-- Safe to run on a fresh OR existing Supabase project
+-- ============================================================
 
--- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================================
 -- TABLES
 -- ============================================================
 
-CREATE TABLE profiles (
+CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   auth_user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name TEXT,
@@ -21,7 +22,7 @@ CREATE TABLE profiles (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE isps (
+CREATE TABLE IF NOT EXISTS isps (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
   status TEXT DEFAULT 'Active',
@@ -29,7 +30,7 @@ CREATE TABLE isps (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE customers (
+CREATE TABLE IF NOT EXISTS customers (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   isp_id UUID REFERENCES isps(id),
   account_number TEXT,
@@ -76,7 +77,7 @@ CREATE TABLE customers (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE call_logs (
+CREATE TABLE IF NOT EXISTS call_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   user_id UUID REFERENCES profiles(id),
@@ -93,7 +94,7 @@ CREATE TABLE call_logs (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE imports (
+CREATE TABLE IF NOT EXISTS imports (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   isp_id UUID REFERENCES isps(id),
   file_name TEXT,
@@ -107,7 +108,7 @@ CREATE TABLE imports (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE import_rows (
+CREATE TABLE IF NOT EXISTS import_rows (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   import_id UUID NOT NULL REFERENCES imports(id) ON DELETE CASCADE,
   row_number INT,
@@ -118,7 +119,7 @@ CREATE TABLE import_rows (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE customer_notes (
+CREATE TABLE IF NOT EXISTS customer_notes (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   user_id UUID REFERENCES profiles(id),
@@ -126,7 +127,7 @@ CREATE TABLE customer_notes (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE activities (
+CREATE TABLE IF NOT EXISTS activities (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   user_id UUID REFERENCES profiles(id),
@@ -137,30 +138,50 @@ CREATE TABLE activities (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Add FK for source_import_id after imports table exists
-ALTER TABLE customers
-  ADD CONSTRAINT customers_source_import_id_fkey
-  FOREIGN KEY (source_import_id) REFERENCES imports(id);
+-- ============================================================
+-- COLUMN UPDATES (for databases created from older schema)
+-- ============================================================
+
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE profiles ALTER COLUMN is_active SET DEFAULT false;
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS assigned_user_id UUID REFERENCES profiles(id);
+
+ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS is_three_way BOOLEAN DEFAULT false;
+ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS senior_assisted_user_id UUID REFERENCES profiles(id);
+
+DO $$ BEGIN
+  ALTER TABLE customers
+    ADD CONSTRAINT customers_source_import_id_fkey
+    FOREIGN KEY (source_import_id) REFERENCES imports(id);
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE import_rows DROP CONSTRAINT IF EXISTS import_rows_customer_id_fkey;
+ALTER TABLE import_rows
+  ADD CONSTRAINT import_rows_customer_id_fkey
+  FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL;
 
 -- ============================================================
 -- INDEXES
 -- ============================================================
 
-CREATE INDEX idx_customers_isp_id ON customers(isp_id);
-CREATE INDEX idx_customers_account_number ON customers(account_number);
-CREATE INDEX idx_customers_normalized_phone ON customers(normalized_phone);
-CREATE INDEX idx_customers_assigned_team ON customers(assigned_team);
-CREATE INDEX idx_customers_assigned_user_id ON customers(assigned_user_id);
-CREATE INDEX idx_call_logs_senior_assisted ON call_logs(senior_assisted_user_id);
-CREATE INDEX idx_customers_workflow_stage ON customers(workflow_stage);
-CREATE INDEX idx_customers_alert_status ON customers(alert_status);
-CREATE INDEX idx_customers_alert_type ON customers(alert_type);
-CREATE INDEX idx_call_logs_customer_id ON call_logs(customer_id);
-CREATE INDEX idx_activities_customer_id ON activities(customer_id);
-CREATE INDEX idx_profiles_auth_user_id ON profiles(auth_user_id);
+CREATE INDEX IF NOT EXISTS idx_customers_isp_id ON customers(isp_id);
+CREATE INDEX IF NOT EXISTS idx_customers_account_number ON customers(account_number);
+CREATE INDEX IF NOT EXISTS idx_customers_normalized_phone ON customers(normalized_phone);
+CREATE INDEX IF NOT EXISTS idx_customers_assigned_team ON customers(assigned_team);
+CREATE INDEX IF NOT EXISTS idx_customers_assigned_user_id ON customers(assigned_user_id);
+CREATE INDEX IF NOT EXISTS idx_customers_workflow_stage ON customers(workflow_stage);
+CREATE INDEX IF NOT EXISTS idx_customers_alert_status ON customers(alert_status);
+CREATE INDEX IF NOT EXISTS idx_customers_alert_type ON customers(alert_type);
+CREATE INDEX IF NOT EXISTS idx_call_logs_customer_id ON call_logs(customer_id);
+CREATE INDEX IF NOT EXISTS idx_call_logs_senior_assisted ON call_logs(senior_assisted_user_id);
+CREATE INDEX IF NOT EXISTS idx_activities_customer_id ON activities(customer_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_auth_user_id ON profiles(auth_user_id);
 
 -- ============================================================
--- HELPER: get current user's profile
+-- HELPER FUNCTIONS
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION get_my_profile()
@@ -177,6 +198,64 @@ CREATE OR REPLACE FUNCTION get_my_team()
 RETURNS TEXT AS $$
   SELECT team FROM profiles WHERE auth_user_id = auth.uid() LIMIT 1;
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION move_customer_to_recovery(p_customer_id UUID)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_role TEXT;
+  v_customer customers%ROWTYPE;
+  v_profile_id UUID;
+BEGIN
+  v_role := get_my_role();
+  IF v_role NOT IN ('admin', 'manager', 'senior_sales') THEN
+    RAISE EXCEPTION 'Not authorized to move customers to Recovery';
+  END IF;
+
+  SELECT id INTO v_profile_id FROM profiles WHERE auth_user_id = auth.uid() LIMIT 1;
+
+  SELECT * INTO v_customer FROM customers WHERE id = p_customer_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Customer not found';
+  END IF;
+  IF v_customer.assigned_team <> 'Senior Sales Team' THEN
+    RAISE EXCEPTION 'Customer is not on Senior Sales Team';
+  END IF;
+  IF v_customer.call_attempt_number < 3 THEN
+    RAISE EXCEPTION 'Customer must have at least 3 call attempts';
+  END IF;
+
+  UPDATE customers
+  SET
+    transfer_status = 'Moved to Recovery',
+    assigned_team = 'Recovery Team',
+    workflow_stage = 'In Recovery',
+    recovery_status = 'In Progress',
+    updated_at = now()
+  WHERE id = p_customer_id;
+
+  INSERT INTO activities (
+    customer_id,
+    user_id,
+    activity_type,
+    old_value,
+    new_value,
+    description
+  ) VALUES (
+    p_customer_id,
+    v_profile_id,
+    'team_transfer',
+    'Senior Sales Team',
+    'Recovery Team',
+    'Moved to Recovery Team after 3 attempts with no returned call'
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION move_customer_to_recovery(UUID) TO authenticated;
 
 -- ============================================================
 -- AUTO-CREATE PROFILE ON SIGNUP
@@ -205,17 +284,17 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
 
--- Required: allow Supabase Auth to insert profiles on signup
 GRANT USAGE ON SCHEMA public TO supabase_auth_admin;
 GRANT ALL ON TABLE public.profiles TO supabase_auth_admin;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO supabase_auth_admin;
 
 -- ============================================================
--- UPDATED_AT TRIGGER
+-- UPDATED_AT TRIGGERS
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION update_updated_at()
@@ -226,10 +305,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS profiles_updated_at ON profiles;
 CREATE TRIGGER profiles_updated_at BEFORE UPDATE ON profiles
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+DROP TRIGGER IF EXISTS isps_updated_at ON isps;
 CREATE TRIGGER isps_updated_at BEFORE UPDATE ON isps
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+DROP TRIGGER IF EXISTS customers_updated_at ON customers;
 CREATE TRIGGER customers_updated_at BEFORE UPDATE ON customers
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
@@ -246,42 +330,51 @@ ALTER TABLE import_rows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customer_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activities ENABLE ROW LEVEL SECURITY;
 
--- Profiles policies
+-- Profiles
+DROP POLICY IF EXISTS "Users can read own profile" ON profiles;
 CREATE POLICY "Users can read own profile"
   ON profiles FOR SELECT
   USING (auth_user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Admin/manager can read all profiles" ON profiles;
 CREATE POLICY "Admin/manager can read all profiles"
   ON profiles FOR SELECT
   USING (get_my_role() IN ('admin', 'manager'));
 
+DROP POLICY IF EXISTS "Admin can manage profiles" ON profiles;
 CREATE POLICY "Admin can manage profiles"
   ON profiles FOR ALL
   USING (get_my_role() = 'admin');
 
+DROP POLICY IF EXISTS "Allow signup profile insert" ON profiles;
 CREATE POLICY "Allow signup profile insert"
   ON profiles FOR INSERT
   WITH CHECK (auth_user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE
   USING (auth_user_id = auth.uid())
   WITH CHECK (auth_user_id = auth.uid());
 
--- ISPs policies
+-- ISPs
+DROP POLICY IF EXISTS "Authenticated users can read ISPs" ON isps;
 CREATE POLICY "Authenticated users can read ISPs"
   ON isps FOR SELECT
   USING (auth.uid() IS NOT NULL);
 
+DROP POLICY IF EXISTS "Admin/manager can manage ISPs" ON isps;
 CREATE POLICY "Admin/manager can manage ISPs"
   ON isps FOR ALL
   USING (get_my_role() IN ('admin', 'manager'));
 
--- Customers policies
+-- Customers
+DROP POLICY IF EXISTS "Admin/manager see all customers" ON customers;
 CREATE POLICY "Admin/manager see all customers"
   ON customers FOR SELECT
   USING (get_my_role() IN ('admin', 'manager'));
 
+DROP POLICY IF EXISTS "Senior sales see senior sales customers" ON customers;
 CREATE POLICY "Senior sales see senior sales customers"
   ON customers FOR SELECT
   USING (
@@ -289,6 +382,7 @@ CREATE POLICY "Senior sales see senior sales customers"
     AND assigned_team = 'Senior Sales Team'
   );
 
+DROP POLICY IF EXISTS "Recovery see recovery customers" ON customers;
 CREATE POLICY "Recovery see recovery customers"
   ON customers FOR SELECT
   USING (
@@ -296,10 +390,12 @@ CREATE POLICY "Recovery see recovery customers"
     AND assigned_team = 'Recovery Team'
   );
 
+DROP POLICY IF EXISTS "Admin/manager can update all customers" ON customers;
 CREATE POLICY "Admin/manager can update all customers"
   ON customers FOR UPDATE
   USING (get_my_role() IN ('admin', 'manager'));
 
+DROP POLICY IF EXISTS "Senior sales can update senior sales customers" ON customers;
 CREATE POLICY "Senior sales can update senior sales customers"
   ON customers FOR UPDATE
   USING (
@@ -311,6 +407,7 @@ CREATE POLICY "Senior sales can update senior sales customers"
     AND assigned_team IN ('Senior Sales Team', 'Recovery Team')
   );
 
+DROP POLICY IF EXISTS "Recovery can update recovery customers" ON customers;
 CREATE POLICY "Recovery can update recovery customers"
   ON customers FOR UPDATE
   USING (
@@ -318,11 +415,13 @@ CREATE POLICY "Recovery can update recovery customers"
     AND assigned_team = 'Recovery Team'
   );
 
+DROP POLICY IF EXISTS "Admin/manager can insert customers" ON customers;
 CREATE POLICY "Admin/manager can insert customers"
   ON customers FOR INSERT
   WITH CHECK (get_my_role() IN ('admin', 'manager'));
 
--- Call logs policies
+-- Call logs
+DROP POLICY IF EXISTS "Users can read call logs for visible customers" ON call_logs;
 CREATE POLICY "Users can read call logs for visible customers"
   ON call_logs FOR SELECT
   USING (
@@ -332,20 +431,24 @@ CREATE POLICY "Users can read call logs for visible customers"
     )
   );
 
+DROP POLICY IF EXISTS "Authenticated users can insert call logs" ON call_logs;
 CREATE POLICY "Authenticated users can insert call logs"
   ON call_logs FOR INSERT
   WITH CHECK (auth.uid() IS NOT NULL);
 
--- Imports policies
+-- Imports
+DROP POLICY IF EXISTS "Admin/manager can manage imports" ON imports;
 CREATE POLICY "Admin/manager can manage imports"
   ON imports FOR ALL
   USING (get_my_role() IN ('admin', 'manager'));
 
+DROP POLICY IF EXISTS "Admin/manager can manage import rows" ON import_rows;
 CREATE POLICY "Admin/manager can manage import rows"
   ON import_rows FOR ALL
   USING (get_my_role() IN ('admin', 'manager'));
 
--- Customer notes policies
+-- Customer notes
+DROP POLICY IF EXISTS "Users can read notes for visible customers" ON customer_notes;
 CREATE POLICY "Users can read notes for visible customers"
   ON customer_notes FOR SELECT
   USING (
@@ -354,11 +457,13 @@ CREATE POLICY "Users can read notes for visible customers"
     )
   );
 
+DROP POLICY IF EXISTS "Authenticated users can insert notes" ON customer_notes;
 CREATE POLICY "Authenticated users can insert notes"
   ON customer_notes FOR INSERT
   WITH CHECK (auth.uid() IS NOT NULL);
 
--- Activities policies
+-- Activities
+DROP POLICY IF EXISTS "Users can read activities for visible customers" ON activities;
 CREATE POLICY "Users can read activities for visible customers"
   ON activities FOR SELECT
   USING (
@@ -367,6 +472,84 @@ CREATE POLICY "Users can read activities for visible customers"
     )
   );
 
+DROP POLICY IF EXISTS "Authenticated users can insert activities" ON activities;
 CREATE POLICY "Authenticated users can insert activities"
   ON activities FOR INSERT
   WITH CHECK (auth.uid() IS NOT NULL);
+
+-- ============================================================
+-- STORAGE (profile avatars)
+-- ============================================================
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Avatar images are publicly accessible" ON storage.objects;
+CREATE POLICY "Avatar images are publicly accessible"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "Users can upload own avatar" ON storage.objects;
+CREATE POLICY "Users can upload own avatar"
+  ON storage.objects FOR INSERT
+  WITH CHECK (
+    bucket_id = 'avatars'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+DROP POLICY IF EXISTS "Users can update own avatar" ON storage.objects;
+CREATE POLICY "Users can update own avatar"
+  ON storage.objects FOR UPDATE
+  USING (
+    bucket_id = 'avatars'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+DROP POLICY IF EXISTS "Users can delete own avatar" ON storage.objects;
+CREATE POLICY "Users can delete own avatar"
+  ON storage.objects FOR DELETE
+  USING (
+    bucket_id = 'avatars'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+-- ============================================================
+-- PER-ISP CUSTOM CRM COLUMNS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS isp_columns (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  isp_id UUID NOT NULL REFERENCES isps(id) ON DELETE CASCADE,
+  column_key TEXT NOT NULL,
+  label TEXT NOT NULL,
+  field_type TEXT NOT NULL DEFAULT 'text' CHECK (field_type IN ('text', 'date', 'phone', 'number')),
+  sort_order INT NOT NULL DEFAULT 0,
+  is_primary BOOLEAN NOT NULL DEFAULT false,
+  used_for_matching BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (isp_id, column_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_isp_columns_isp_id ON isp_columns(isp_id);
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
+CREATE INDEX IF NOT EXISTS idx_customers_custom_fields ON customers USING gin (custom_fields);
+
+ALTER TABLE isp_columns ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Admin/manager can manage isp columns" ON isp_columns;
+CREATE POLICY "Admin/manager can manage isp columns"
+  ON isp_columns FOR ALL
+  USING (get_my_role() IN ('admin', 'manager'));
+
+DROP POLICY IF EXISTS "Authenticated users can read isp columns" ON isp_columns;
+CREATE POLICY "Authenticated users can read isp columns"
+  ON isp_columns FOR SELECT
+  USING (auth.uid() IS NOT NULL);
+
+-- ============================================================
+-- DATA FIXES (safe to re-run)
+-- ============================================================
+
+UPDATE profiles SET team = 'Recovery Team' WHERE role = 'recovery' AND team IS DISTINCT FROM 'Recovery Team';
+UPDATE profiles SET team = 'Senior Sales Team' WHERE role IN ('admin', 'manager', 'senior_sales') AND team IS DISTINCT FROM 'Senior Sales Team';

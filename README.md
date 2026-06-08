@@ -36,6 +36,7 @@ Edit `.env.local`:
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
 ### 4. Install & Run
@@ -49,12 +50,27 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ### 5. Configure Supabase Auth Settings
 
-In Supabase Dashboard → **Authentication → Providers → Email**:
+In Supabase Dashboard → **Authentication → URL Configuration**:
+
+1. Set **Site URL** to your production domain (e.g. `https://your-app.netlify.app`)
+2. Add **Redirect URLs** (wildcards are supported):
+   - `http://localhost:3000/**`
+   - `https://your-production-domain.com/**`
+
+In **Authentication → Providers → Email**:
 
 1. **Disable "Confirm email"** — signups do not require email confirmation
-2. Add your site URL to **Redirect URLs** (for password reset):
-   - `http://localhost:3000/auth/callback`
-   - `https://your-production-domain.com/auth/callback`
+2. For production, configure **Custom SMTP** under Authentication → Emails (Supabase's built-in email is rate-limited to ~4/hour)
+
+In **Authentication → Email Templates → Reset Password**, use this template for Next.js SSR (PKCE):
+
+```html
+<h2>Reset your password</h2>
+<p>We received a request to reset your password. Follow the link below to choose a new one.</p>
+<p><a href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=recovery">Reset password</a></p>
+```
+
+Set `NEXT_PUBLIC_SITE_URL` in Netlify (and locally) to your public site origin so password reset links use the correct domain.
 
 ### 6. Create the First Admin User
 

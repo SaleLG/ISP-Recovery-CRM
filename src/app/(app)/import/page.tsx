@@ -1,11 +1,11 @@
 import { Typography } from "@mui/material";
 import ImportWizard from "@/components/import/ImportWizard";
-import { getISPs } from "@/actions/isps";
+import { getISPsWithCounts } from "@/actions/isps";
 import { requireRole } from "@/lib/auth";
 
 export default async function ImportPage() {
   await requireRole(["admin", "manager"]);
-  const isps = await getISPs();
+  const isps = await getISPsWithCounts();
 
   return (
     <>
@@ -13,7 +13,8 @@ export default async function ImportPage() {
         Import Customers
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Upload an ISP Excel/CSV file to import or update customer records.
+        Select an ISP, map spreadsheet columns to that ISP&apos;s CRM columns,
+        then import customer records.
       </Typography>
       <ImportWizard isps={isps} />
     </>

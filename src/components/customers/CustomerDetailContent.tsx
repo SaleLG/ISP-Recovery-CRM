@@ -13,7 +13,9 @@ import CustomerDetailActions from "./CustomerDetailActions";
 import CallHistoryTable from "./CallHistoryTable";
 import NotesSection from "./NotesSection";
 import ActivityTimeline from "./ActivityTimeline";
-import type { CallLog, Customer, Profile } from "@/lib/types";
+import { getCustomerDisplayName, getCustomFieldValue } from "@/lib/customerFields";
+import { formatIspStatus } from "@/lib/constants";
+import type { CallLog, Customer, ISPColumn, Profile } from "@/lib/types";
 
 interface Note {
   id: string;
@@ -34,6 +36,7 @@ interface Activity {
 
 interface Props {
   customer: Customer;
+  ispColumns?: ISPColumn[];
   callLogs: CallLog[];
   notes: Note[];
   activities: Activity[];
@@ -44,6 +47,7 @@ interface Props {
 
 export default function CustomerDetailContent({
   customer,
+  ispColumns = [],
   callLogs,
   notes,
   activities,
@@ -51,21 +55,42 @@ export default function CustomerDetailContent({
   recoveryTeamMembers,
   seniorAssistUsers,
 }: Props) {
-  const infoFields = [
-    { label: "Full Name", value: customer.full_name },
-    { label: "Phone", value: customer.phone },
-    { label: "Account #", value: customer.account_number },
-    { label: "Address", value: customer.address },
-    { label: "ISP", value: customer.isps?.name },
-    { label: "ISP Status", value: customer.isp_status },
-    { label: "Product", value: customer.product },
-    { label: "Term", value: customer.term },
-    { label: "Order Date", value: customer.order_date },
-    { label: "Install Date", value: customer.install_date },
-    { label: "Install Complete", value: customer.install_complete },
-    { label: "Sales Rep ID", value: customer.sales_rep_id },
-    { label: "ISP Notes", value: customer.isp_notes },
-  ];
+  const displayName = getCustomerDisplayName(
+    customer.custom_fields,
+    ispColumns,
+    customer.full_name
+  );
+
+  const infoFields =
+    ispColumns.length > 0
+      ? [
+          { label: "ISP", value: customer.isps?.name },
+          ...ispColumns.map((col) => {
+            const raw =
+              getCustomFieldValue(customer.custom_fields, col.column_key) ??
+              (customer[col.column_key as keyof Customer] as string | null);
+            const value =
+              col.column_key === "isp_status" && raw
+                ? formatIspStatus(raw)
+                : raw;
+            return { label: col.label, value };
+          }),
+        ]
+      : [
+          { label: "Full Name", value: customer.full_name },
+          { label: "Phone", value: customer.phone },
+          { label: "Account #", value: customer.account_number },
+          { label: "Address", value: customer.address },
+          { label: "ISP", value: customer.isps?.name },
+          { label: "ISP Status", value: customer.isp_status },
+          { label: "Product", value: customer.product },
+          { label: "Term", value: customer.term },
+          { label: "Order Date", value: customer.order_date },
+          { label: "Install Date", value: customer.install_date },
+          { label: "Install Complete", value: customer.install_complete },
+          { label: "Sales Rep ID", value: customer.sales_rep_id },
+          { label: "ISP Notes", value: customer.isp_notes },
+        ];
 
   const statusFields = [
     { label: "Assigned Team", value: customer.assigned_team },
@@ -88,7 +113,7 @@ export default function CustomerDetailContent({
   return (
     <>
       <Typography variant="h4" gutterBottom>
-        {customer.full_name || "Customer Detail"}
+        {displayName === "—" ? "Customer Detail" : displayName}
       </Typography>
 
       <Grid container spacing={3}>

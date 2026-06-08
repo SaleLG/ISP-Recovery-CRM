@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Box,
   Button,
@@ -17,20 +18,29 @@ import {
   DialogActions,
   MenuItem,
   Paper,
+  Chip,
+  Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
+import TableChartIcon from "@mui/icons-material/TableChart";
+import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import { createISP, updateISP, deleteISP } from "@/actions/isps";
+import ISPColumnManager from "./ISPColumnManager";
+import type { ISPColumn } from "@/lib/types";
 
 interface ISP {
   id: string;
   name: string;
   status: string;
+  customer_count?: number;
+  columns?: ISPColumn[];
 }
 
 export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
   const [isps, setIsps] = useState(initial);
+  const [columnsDialogIsp, setColumnsDialogIsp] = useState<ISP | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ISP | null>(null);
   const [name, setName] = useState("");
@@ -58,11 +68,15 @@ export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
       if (editing) {
         const updated = await updateISP(editing.id, { name, status });
         setIsps((prev) =>
-          prev.map((i) => (i.id === editing.id ? { ...i, ...updated } : i))
+          prev.map((i) =>
+            i.id === editing.id
+              ? { ...i, ...updated, customer_count: i.customer_count }
+              : i
+          )
         );
       } else {
         const created = await createISP(name);
-        setIsps((prev) => [...prev, created]);
+        setIsps((prev) => [...prev, { ...created, customer_count: 0 }]);
       }
       setDialogOpen(false);
     } catch (err) {
@@ -73,7 +87,8 @@ export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this ISP?")) return;
+    if (!confirm("Delete this ISP? Customers linked to it will remain but lose their ISP tag."))
+      return;
     try {
       await deleteISP(id);
       setIsps((prev) => prev.filter((i) => i.id !== id));
@@ -84,6 +99,11 @@ export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
 
   return (
     <Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Each ISP gets its own customer table in Master CRM. Create an ISP here,
+        then import customers for that ISP on the Import page.
+      </Typography>
+
       <Button
         variant="contained"
         startIcon={<AddIcon />}
@@ -99,31 +119,107 @@ export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
             <TableRow>
               <TableCell>Name</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Customers</TableCell>
+              <TableCell>Columns</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {isps.map((isp) => (
-              <TableRow key={isp.id}>
-                <TableCell>{isp.name}</TableCell>
-                <TableCell>{isp.status}</TableCell>
-                <TableCell align="right">
-                  <IconButton size="small" onClick={() => openEdit(isp)}>
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={() => handleDelete(isp.id)}
-                  >
-                    <DeleteIcon />
-                  </IconButton>
+            {isps.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Typography color="text.secondary" sx={{ py: 2 }}>
+                    No ISPs yet. Add one to create your first CRM table.
+                  </Typography>
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              isps.map((isp) => (
+                <TableRow key={isp.id}>
+                  <TableCell>{isp.name}</TableCell>
+                  <TableCell>{isp.status}</TableCell>
+                  <TableCell>
+                    <Chip
+                      label={isp.customer_count ?? 0}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={isp.columns?.length ?? 0}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    <Button
+                      size="small"
+                      startIcon={<ViewColumnIcon />}
+                      onClick={() => setColumnsDialogIsp(isp)}
+                      sx={{ mr: 1 }}
+                    >
+                      Columns
+                    </Button>
+                    <Button
+                      component={Link}
+                      href={`/customers?isp=${isp.id}`}
+                      size="small"
+                      startIcon={<TableChartIcon />}
+                      sx={{ mr: 1 }}
+                    >
+                      View CRM
+                    </Button>
+                    <IconButton size="small" onClick={() => openEdit(isp)}>
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => handleDelete(isp.id)}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </Paper>
+
+      <Dialog
+        open={!!columnsDialogIsp}
+        onClose={() => setColumnsDialogIsp(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          CRM Columns — {columnsDialogIsp?.name}
+        </DialogTitle>
+        <DialogContent>
+          {columnsDialogIsp && (
+            <ISPColumnManager
+              ispId={columnsDialogIsp.id}
+              ispName={columnsDialogIsp.name}
+              columns={columnsDialogIsp.columns ?? []}
+              onChange={(columns) => {
+                setIsps((prev) =>
+                  prev.map((isp) =>
+                    isp.id === columnsDialogIsp.id ? { ...isp, columns } : isp
+                  )
+                );
+                setColumnsDialogIsp((prev) =>
+                  prev ? { ...prev, columns } : prev
+                );
+              }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setColumnsDialogIsp(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
         <DialogTitle>{editing ? "Edit ISP" : "Add ISP"}</DialogTitle>
@@ -134,6 +230,7 @@ export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
             onChange={(e) => setName(e.target.value)}
             fullWidth
             sx={{ mt: 1, mb: 2 }}
+            placeholder="e.g. Comcast, Spectrum"
           />
           {editing && (
             <TextField

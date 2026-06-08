@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Box,
   Button,
@@ -22,13 +23,14 @@ import {
   Chip,
 } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
-import { CRM_FIELDS } from "@/lib/constants";
 import { buildPreview } from "@/lib/import";
 import { previewImport, confirmImport } from "@/actions/import";
+import type { ISPColumn } from "@/lib/types";
 
 interface ISP {
   id: string;
   name: string;
+  columns?: ISPColumn[];
 }
 
 interface Props {
@@ -40,6 +42,7 @@ const STEPS = ["Upload File", "Map Columns", "Preview & Confirm", "Summary"];
 export default function ImportWizard({ isps }: Props) {
   const [step, setStep] = useState(0);
   const [ispId, setIspId] = useState("");
+  const [ispColumns, setIspColumns] = useState<ISPColumn[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
@@ -59,8 +62,14 @@ export default function ImportWizard({ isps }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const mappedFields = CRM_FIELDS.filter((f) =>
-    Object.values(columnMapping).includes(f.key)
+  const selectedIsp = isps.find((isp) => isp.id === ispId);
+  const columnCount = selectedIsp?.columns?.length ?? 0;
+
+  const mappedColumnKeys = [
+    ...new Set(Object.values(columnMapping).filter(Boolean)),
+  ];
+  const mappedColumns = ispColumns.filter((c) =>
+    mappedColumnKeys.includes(c.column_key)
   );
 
   const handleFileUpload = async () => {
@@ -73,9 +82,10 @@ export default function ImportWizard({ isps }: Props) {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const result = await previewImport(formData);
+      const result = await previewImport(formData, ispId);
       setHeaders(result.headers);
       setColumnMapping(result.autoMapping);
+      setIspColumns(result.ispColumns);
       setAllRows(result.rows);
       setPreviewRows(result.previewRows);
       setTotalRows(result.totalRows);
@@ -88,11 +98,11 @@ export default function ImportWizard({ isps }: Props) {
     }
   };
 
-  const handleMappingChange = (header: string, crmField: string) => {
+  const handleMappingChange = (header: string, columnKey: string) => {
     setColumnMapping((prev) => {
       const next = { ...prev };
-      if (crmField) {
-        next[header] = crmField;
+      if (columnKey) {
+        next[header] = columnKey;
       } else {
         delete next[header];
       }
@@ -129,6 +139,7 @@ export default function ImportWizard({ isps }: Props) {
     setFile(null);
     setHeaders([]);
     setColumnMapping({});
+    setIspColumns([]);
     setPreviewRows([]);
     setAllRows([]);
     setSummary(null);
@@ -166,9 +177,18 @@ export default function ImportWizard({ isps }: Props) {
                 {isps.map((isp) => (
                   <MenuItem key={isp.id} value={isp.id}>
                     {isp.name}
+                    {isp.columns ? ` (${isp.columns.length} columns)` : ""}
                   </MenuItem>
                 ))}
               </TextField>
+
+              {ispId && columnCount === 0 && (
+                <Alert severity="warning">
+                  This ISP has no CRM columns yet.{" "}
+                  <Link href="/isps">Add columns on the ISPs page</Link> before
+                  importing.
+                </Alert>
+              )}
 
               <Box>
                 <Button
@@ -194,7 +214,7 @@ export default function ImportWizard({ isps }: Props) {
               <Button
                 variant="contained"
                 onClick={handleFileUpload}
-                disabled={loading || !file || !ispId}
+                disabled={loading || !file || !ispId || columnCount === 0}
               >
                 {loading ? "Parsing..." : "Upload & Continue"}
               </Button>
@@ -210,14 +230,14 @@ export default function ImportWizard({ isps }: Props) {
               Column Mapping ({totalRows} rows detected)
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Map spreadsheet columns to CRM fields. Known columns are auto-mapped
-              (case-insensitive). Adjust any that were missed.
+              Map spreadsheet columns to this ISP&apos;s CRM columns. Matching
+              labels are auto-mapped.
             </Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>Spreadsheet Column</TableCell>
-                  <TableCell>CRM Field</TableCell>
+                  <TableCell>ISP CRM Column</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -232,12 +252,12 @@ export default function ImportWizard({ isps }: Props) {
                         onChange={(e) =>
                           handleMappingChange(header, e.target.value)
                         }
-                        sx={{ minWidth: 200 }}
+                        sx={{ minWidth: 220 }}
                       >
                         <MenuItem value="">— Skip —</MenuItem>
-                        {CRM_FIELDS.map((f) => (
-                          <MenuItem key={f.key} value={f.key}>
-                            {f.label}
+                        {ispColumns.map((col) => (
+                          <MenuItem key={col.column_key} value={col.column_key}>
+                            {col.label}
                           </MenuItem>
                         ))}
                       </TextField>
@@ -262,7 +282,7 @@ export default function ImportWizard({ isps }: Props) {
             <Typography variant="h6" gutterBottom>
               Preview (first 20 rows)
             </Typography>
-            {mappedFields.length === 0 && (
+            {mappedColumns.length === 0 && (
               <Alert severity="warning" sx={{ mb: 2 }}>
                 No columns mapped. Go back and map at least one spreadsheet column.
               </Alert>
@@ -272,8 +292,8 @@ export default function ImportWizard({ isps }: Props) {
                 <TableHead>
                   <TableRow>
                     <TableCell>#</TableCell>
-                    {mappedFields.map((f) => (
-                      <TableCell key={f.key}>{f.label}</TableCell>
+                    {mappedColumns.map((col) => (
+                      <TableCell key={col.column_key}>{col.label}</TableCell>
                     ))}
                   </TableRow>
                 </TableHead>
@@ -281,9 +301,9 @@ export default function ImportWizard({ isps }: Props) {
                   {previewRows.map((row) => (
                     <TableRow key={row.rowNumber}>
                       <TableCell>{row.rowNumber}</TableCell>
-                      {mappedFields.map((f) => (
-                        <TableCell key={f.key}>
-                          {row.mapped[f.key] || "—"}
+                      {mappedColumns.map((col) => (
+                        <TableCell key={col.column_key}>
+                          {row.mapped[col.column_key] || "—"}
                         </TableCell>
                       ))}
                     </TableRow>
@@ -296,7 +316,7 @@ export default function ImportWizard({ isps }: Props) {
               <Button
                 variant="contained"
                 onClick={handleConfirm}
-                disabled={loading || mappedFields.length === 0}
+                disabled={loading || mappedColumns.length === 0}
               >
                 {loading ? "Importing..." : `Confirm Import (${totalRows} rows)`}
               </Button>
