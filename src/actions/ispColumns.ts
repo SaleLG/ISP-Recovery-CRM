@@ -205,6 +205,7 @@ function revalidatePaths(ispId: string) {
   revalidatePath("/customers");
   revalidatePath("/senior-sales");
   revalidatePath("/recovery");
+  revalidatePath("/alerts");
   revalidatePath("/import");
   revalidatePath(`/customers?isp=${ispId}`);
 }
