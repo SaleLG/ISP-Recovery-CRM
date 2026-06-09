@@ -61,6 +61,14 @@ export default function ISPColumnManager({
     return () => window.clearTimeout(timer);
   }, [dialogOpen]);
 
+  const resetCreateForm = (columnCount: number) => {
+    setEditing(null);
+    setLabel("");
+    setIsPrimary(columnCount === 0);
+    setUsedForMatching(false);
+    window.setTimeout(() => labelInputRef.current?.focus(), 50);
+  };
+
   const openCreate = () => {
     setEditing(null);
     setLabel("");
@@ -96,6 +104,7 @@ export default function ISPColumnManager({
         );
         setColumns(next);
         onChange(next);
+        setDialogOpen(false);
       } else {
         const created = await createISPColumn({
           ispId,
@@ -106,10 +115,11 @@ export default function ISPColumnManager({
         const next = isPrimary
           ? columns.map((c) => ({ ...c, is_primary: false }))
           : columns;
-        setColumns([...next, created]);
-        onChange([...next, created]);
+        const updatedColumns = [...next, created];
+        setColumns(updatedColumns);
+        onChange(updatedColumns);
+        resetCreateForm(updatedColumns.length);
       }
-      setDialogOpen(false);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to save column");
     } finally {
