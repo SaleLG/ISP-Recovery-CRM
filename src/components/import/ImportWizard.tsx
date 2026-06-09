@@ -116,19 +116,31 @@ export default function ImportWizard({ isps }: Props) {
   };
 
   const handleConfirm = async () => {
+    if (!file) {
+      setError("Original file is missing. Go back and upload the file again.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
-      const result = await confirmImport({
-        ispId,
-        fileName,
-        columnMapping,
-        rows: allRows,
-      });
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("ispId", ispId);
+      formData.append("fileName", fileName);
+      formData.append("columnMapping", JSON.stringify(columnMapping));
+      const result = await confirmImport(formData);
       setSummary(result);
       setStep(3);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed");
+      const message =
+        err instanceof Error ? err.message : "Import failed";
+      if (message.includes("unexpected response")) {
+        setError(
+          "Import failed — the file may be too large or the server timed out. Try a smaller file or check your internet connection."
+        );
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }

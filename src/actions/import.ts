@@ -71,17 +71,31 @@ async function findExistingCustomer(
   return null;
 }
 
-export async function confirmImport(params: {
-  ispId: string;
-  fileName: string;
-  columnMapping: Record<string, string>;
-  rows: Record<string, string | null>[];
-}) {
+export async function confirmImport(formData: FormData) {
   const profile = await requireRole(["admin", "manager"]);
   const supabase = await createClient();
   const defaultTeam = "Senior Sales Team";
 
-  const ispColumns = await getISPColumns(params.ispId);
+  const ispId = String(formData.get("ispId") ?? "");
+  const fileName = String(formData.get("fileName") ?? "");
+  const columnMappingRaw = formData.get("columnMapping");
+  const file = formData.get("file") as File | null;
+
+  if (!ispId) throw new Error("Select an ISP before importing");
+  if (!file) throw new Error("No file provided");
+  if (!columnMappingRaw) throw new Error("Column mapping is required");
+
+  let columnMapping: Record<string, string>;
+  try {
+    columnMapping = JSON.parse(String(columnMappingRaw));
+  } catch {
+    throw new Error("Invalid column mapping");
+  }
+
+  const buffer = await file.arrayBuffer();
+  const { rows } = parseSpreadsheet(buffer);
+
+  const ispColumns = await getISPColumns(ispId);
   if (ispColumns.length === 0) {
     throw new Error("This ISP has no CRM columns configured");
   }
@@ -91,11 +105,11 @@ export async function confirmImport(params: {
   const { data: importRecord, error: importError } = await supabase
     .from("imports")
     .insert({
-      isp_id: params.ispId,
-      file_name: params.fileName,
+      isp_id: ispId,
+      file_name: fileName || file.name,
       uploaded_by: profile.id,
       default_assigned_team: defaultTeam,
-      total_rows: params.rows.length,
+      total_rows: rows.length,
     })
     .select()
     .single();
@@ -107,9 +121,9 @@ export async function confirmImport(params: {
   const skippedRows = 0;
   let errorRows = 0;
 
-  for (let i = 0; i < params.rows.length; i++) {
-    const raw = params.rows[i];
-    const mapped = mapRow(raw, params.columnMapping);
+  for (let i = 0; i < rows.length; i++) {
+    const raw = rows[i];
+    const mapped = mapRow(raw, columnMapping);
     const customFields = buildCustomFieldsFromMapping(mapped);
     const validationError = validateMappedRow(mapped);
 
@@ -128,14 +142,14 @@ export async function confirmImport(params: {
     try {
       const existingId = await findExistingCustomer(
         supabase,
-        params.ispId,
+        ispId,
         customFields,
         matchColumns
       );
 
       const legacyFields = syncLegacyCustomerFields(customFields);
       const customerData = {
-        isp_id: params.ispId,
+        isp_id: ispId,
         custom_fields: customFields,
         ...legacyFields,
         source_import_id: importRecord.id,
@@ -190,7 +204,7 @@ export async function confirmImport(params: {
           customer_id: customerId,
           user_id: profile.id,
           activity_type: "import",
-          description: `Imported from ${params.fileName}`,
+          description: `Imported from ${fileName || file.name}`,
         });
       }
     } catch (err) {
@@ -222,7 +236,7 @@ export async function confirmImport(params: {
   revalidatePath("/import");
 
   return {
-    total_rows: params.rows.length,
+    total_rows: rows.length,
     new_customers: newCustomers,
     updated_customers: updatedCustomers,
     skipped_rows: skippedRows,
