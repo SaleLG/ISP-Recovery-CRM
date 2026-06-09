@@ -3,6 +3,8 @@ import ImportWizard from "@/components/import/ImportWizard";
 import { getISPsWithCounts } from "@/actions/isps";
 import { requireRole } from "@/lib/auth";
 
+export const maxDuration = 300;
+
 export default async function ImportPage() {
   await requireRole(["admin", "manager"]);
   const isps = await getISPsWithCounts();

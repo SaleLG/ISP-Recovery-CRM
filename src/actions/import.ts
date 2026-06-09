@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth";
 import {
   parseSpreadsheet,
@@ -12,10 +12,13 @@ import {
   buildCustomFieldsFromMapping,
   syncLegacyCustomerFields,
 } from "@/lib/customerFields";
-import { normalizePhone } from "@/lib/phone";
 import { getISPColumns } from "@/actions/ispColumns";
 import type { ISPColumn } from "@/lib/types";
 import { revalidatePath } from "next/cache";
+
+const INSERT_BATCH = 100;
+const UPDATE_CONCURRENCY = 25;
+const IMPORT_ROW_BATCH = 200;
 
 export async function previewImport(formData: FormData, ispId: string) {
   await requireRole(["admin", "manager"]);
@@ -49,31 +52,53 @@ export async function previewImport(formData: FormData, ispId: string) {
   };
 }
 
-async function findExistingCustomer(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  ispId: string,
+function buildMatchLookup(
+  customers: { id: string; custom_fields: Record<string, string | null> | null }[],
+  matchColumns: ISPColumn[]
+) {
+  const lookup = new Map<string, string>();
+  for (const customer of customers) {
+    for (const column of matchColumns) {
+      const value = customer.custom_fields?.[column.column_key];
+      if (value) {
+        lookup.set(`${column.column_key}:${value}`, customer.id);
+      }
+    }
+  }
+  return lookup;
+}
+
+function findExistingInMemory(
+  lookup: Map<string, string>,
+  customFields: Record<string, string | null>,
+  matchColumns: ISPColumn[]
+): string | null {
+  for (const column of matchColumns) {
+    const value = customFields[column.column_key];
+    if (!value) continue;
+    const id = lookup.get(`${column.column_key}:${value}`);
+    if (id) return id;
+  }
+  return null;
+}
+
+function registerMatchKeys(
+  lookup: Map<string, string>,
+  customerId: string,
   customFields: Record<string, string | null>,
   matchColumns: ISPColumn[]
 ) {
   for (const column of matchColumns) {
     const value = customFields[column.column_key];
-    if (!value) continue;
-
-    const { data } = await supabase
-      .from("customers")
-      .select("id")
-      .eq("isp_id", ispId)
-      .filter(`custom_fields->>${column.column_key}`, "eq", value)
-      .maybeSingle();
-    if (data) return data.id;
+    if (value) {
+      lookup.set(`${column.column_key}:${value}`, customerId);
+    }
   }
-
-  return null;
 }
 
-export async function confirmImport(formData: FormData) {
+async function runConfirmImport(formData: FormData) {
   const profile = await requireRole(["admin", "manager"]);
-  const supabase = await createClient();
+  const admin = createAdminClient();
   const defaultTeam = "Senior Sales Team";
 
   const ispId = String(formData.get("ispId") ?? "");
@@ -102,7 +127,7 @@ export async function confirmImport(formData: FormData) {
 
   const matchColumns = ispColumns.filter((c) => c.used_for_matching);
 
-  const { data: importRecord, error: importError } = await supabase
+  const { data: importRecord, error: importError } = await admin
     .from("imports")
     .insert({
       isp_id: ispId,
@@ -116,115 +141,235 @@ export async function confirmImport(formData: FormData) {
 
   if (importError) throw new Error(importError.message);
 
-  let newCustomers = 0;
-  let updatedCustomers = 0;
-  const skippedRows = 0;
-  let errorRows = 0;
+  const { data: existingCustomers, error: existingError } = await admin
+    .from("customers")
+    .select("id, custom_fields")
+    .eq("isp_id", ispId);
+
+  if (existingError) throw new Error(existingError.message);
+
+  const matchLookup = buildMatchLookup(existingCustomers ?? [], matchColumns);
+
+  type ImportRowRecord = {
+    import_id: string;
+    row_number: number;
+    raw_data: Record<string, string | null>;
+    status: string;
+    customer_id?: string;
+    error_message?: string;
+  };
+
+  type InsertItem = {
+    rowNumber: number;
+    raw: Record<string, string | null>;
+    payload: Record<string, unknown>;
+    customFields: Record<string, string | null>;
+  };
+
+  type UpdateItem = {
+    rowNumber: number;
+    raw: Record<string, string | null>;
+    id: string;
+    payload: Record<string, unknown>;
+  };
+
+  const importRowRecords: ImportRowRecord[] = [];
+  const toInsert: InsertItem[] = [];
+  const toUpdate: UpdateItem[] = [];
+  const pendingByMatchKey = new Map<string, number>();
 
   for (let i = 0; i < rows.length; i++) {
     const raw = rows[i];
+    const rowNumber = i + 2;
     const mapped = mapRow(raw, columnMapping);
     const customFields = buildCustomFieldsFromMapping(mapped);
     const validationError = validateMappedRow(mapped);
 
     if (validationError) {
-      errorRows++;
-      await supabase.from("import_rows").insert({
+      importRowRecords.push({
         import_id: importRecord.id,
-        row_number: i + 2,
-        raw_data: raw as Record<string, unknown>,
+        row_number: rowNumber,
+        raw_data: raw,
         status: "error",
         error_message: validationError,
       });
       continue;
     }
 
-    try {
-      const existingId = await findExistingCustomer(
-        supabase,
-        ispId,
-        customFields,
-        matchColumns
-      );
+    const legacyFields = syncLegacyCustomerFields(customFields);
+    const customerData = {
+      isp_id: ispId,
+      custom_fields: customFields,
+      ...legacyFields,
+      source_import_id: importRecord.id,
+    };
 
-      const legacyFields = syncLegacyCustomerFields(customFields);
-      const customerData = {
-        isp_id: ispId,
-        custom_fields: customFields,
-        ...legacyFields,
-        source_import_id: importRecord.id,
-      };
+    const existingId = findExistingInMemory(matchLookup, customFields, matchColumns);
 
-      let customerId: string;
-
-      if (existingId) {
-        const { data, error } = await supabase
-          .from("customers")
-          .update(customerData)
-          .eq("id", existingId)
-          .select("id")
-          .single();
-
-        if (error) throw error;
-        customerId = data.id;
-        updatedCustomers++;
-
-        await supabase.from("import_rows").insert({
-          import_id: importRecord.id,
-          row_number: i + 2,
-          raw_data: raw,
-          status: "updated",
-          customer_id: customerId,
-        });
-      } else {
-        const { data, error } = await supabase
-          .from("customers")
-          .insert({
-            ...customerData,
-            assigned_team: defaultTeam,
-            workflow_stage: "New",
-            call_attempt_number: 0,
-          })
-          .select("id")
-          .single();
-
-        if (error) throw error;
-        customerId = data.id;
-        newCustomers++;
-
-        await supabase.from("import_rows").insert({
-          import_id: importRecord.id,
-          row_number: i + 2,
-          raw_data: raw,
-          status: "new",
-          customer_id: customerId,
-        });
-
-        await supabase.from("activities").insert({
-          customer_id: customerId,
-          user_id: profile.id,
-          activity_type: "import",
-          description: `Imported from ${fileName || file.name}`,
-        });
-      }
-    } catch (err) {
-      errorRows++;
-      await supabase.from("import_rows").insert({
-        import_id: importRecord.id,
-        row_number: i + 2,
-        raw_data: raw,
-        status: "error",
-        error_message: err instanceof Error ? err.message : "Unknown error",
+    if (existingId) {
+      toUpdate.push({
+        rowNumber,
+        raw,
+        id: existingId,
+        payload: customerData,
       });
+      continue;
+    }
+
+    const pendingKey = matchColumns
+      .map((col) => {
+        const value = customFields[col.column_key];
+        return value ? `${col.column_key}:${value}` : null;
+      })
+      .find(Boolean);
+
+    if (pendingKey && pendingByMatchKey.has(pendingKey)) {
+      const pendingIndex = pendingByMatchKey.get(pendingKey)!;
+      toInsert[pendingIndex].payload = customerData;
+      toInsert[pendingIndex].customFields = customFields;
+      toInsert[pendingIndex].rowNumber = rowNumber;
+      toInsert[pendingIndex].raw = raw;
+      continue;
+    }
+
+    const insertIndex = toInsert.length;
+    toInsert.push({
+      rowNumber,
+      raw,
+      payload: {
+        ...customerData,
+        assigned_team: defaultTeam,
+        workflow_stage: "New",
+        call_attempt_number: 0,
+      },
+      customFields,
+    });
+
+    if (pendingKey) {
+      pendingByMatchKey.set(pendingKey, insertIndex);
     }
   }
 
-  await supabase
+  let newCustomers = 0;
+  let updatedCustomers = 0;
+  let errorRows = importRowRecords.length;
+
+  for (let i = 0; i < toInsert.length; i += INSERT_BATCH) {
+    const chunk = toInsert.slice(i, i + INSERT_BATCH);
+    const { data, error } = await admin
+      .from("customers")
+      .insert(chunk.map((item) => item.payload))
+      .select("id");
+
+    if (error) {
+      for (const item of chunk) {
+        importRowRecords.push({
+          import_id: importRecord.id,
+          row_number: item.rowNumber,
+          raw_data: item.raw,
+          status: "error",
+          error_message: error.message,
+        });
+        errorRows++;
+      }
+      continue;
+    }
+
+    const activityRows: {
+      customer_id: string;
+      user_id: string;
+      activity_type: string;
+      description: string;
+    }[] = [];
+
+    chunk.forEach((item, index) => {
+      const customerId = data[index]?.id;
+      if (!customerId) {
+        importRowRecords.push({
+          import_id: importRecord.id,
+          row_number: item.rowNumber,
+          raw_data: item.raw,
+          status: "error",
+          error_message: "Insert succeeded but no customer id returned",
+        });
+        errorRows++;
+        return;
+      }
+
+      newCustomers++;
+      registerMatchKeys(matchLookup, customerId, item.customFields, matchColumns);
+      importRowRecords.push({
+        import_id: importRecord.id,
+        row_number: item.rowNumber,
+        raw_data: item.raw,
+        status: "new",
+        customer_id: customerId,
+      });
+      activityRows.push({
+        customer_id: customerId,
+        user_id: profile.id,
+        activity_type: "import",
+        description: `Imported from ${fileName || file.name}`,
+      });
+    });
+
+    if (activityRows.length > 0) {
+      const { error: activityError } = await admin
+        .from("activities")
+        .insert(activityRows);
+      if (activityError) {
+        console.error("Failed to log import activities:", activityError.message);
+      }
+    }
+  }
+
+  for (let i = 0; i < toUpdate.length; i += UPDATE_CONCURRENCY) {
+    const chunk = toUpdate.slice(i, i + UPDATE_CONCURRENCY);
+    const results = await Promise.all(
+      chunk.map(async (item) => {
+        const { error } = await admin
+          .from("customers")
+          .update(item.payload)
+          .eq("id", item.id);
+        return { item, error };
+      })
+    );
+
+    for (const { item, error } of results) {
+      if (error) {
+        importRowRecords.push({
+          import_id: importRecord.id,
+          row_number: item.rowNumber,
+          raw_data: item.raw,
+          status: "error",
+          error_message: error.message,
+        });
+        errorRows++;
+      } else {
+        updatedCustomers++;
+        importRowRecords.push({
+          import_id: importRecord.id,
+          row_number: item.rowNumber,
+          raw_data: item.raw,
+          status: "updated",
+          customer_id: item.id,
+        });
+      }
+    }
+  }
+
+  for (let i = 0; i < importRowRecords.length; i += IMPORT_ROW_BATCH) {
+    const chunk = importRowRecords.slice(i, i + IMPORT_ROW_BATCH);
+    const { error } = await admin.from("import_rows").insert(chunk);
+    if (error) throw new Error(`Failed to save import log: ${error.message}`);
+  }
+
+  await admin
     .from("imports")
     .update({
       new_customers: newCustomers,
       updated_customers: updatedCustomers,
-      skipped_rows: skippedRows,
+      skipped_rows: 0,
       error_rows: errorRows,
     })
     .eq("id", importRecord.id);
@@ -239,7 +384,28 @@ export async function confirmImport(formData: FormData) {
     total_rows: rows.length,
     new_customers: newCustomers,
     updated_customers: updatedCustomers,
-    skipped_rows: skippedRows,
+    skipped_rows: 0,
     error_rows: errorRows,
   };
+}
+
+export async function confirmImport(formData: FormData) {
+  try {
+    return await runConfirmImport(formData);
+  } catch (err) {
+    const cause = err instanceof Error && "cause" in err ? err.cause : err;
+    const code =
+      cause && typeof cause === "object" && "code" in cause
+        ? String(cause.code)
+        : "";
+    if (
+      code === "UND_ERR_CONNECT_TIMEOUT" ||
+      (err instanceof Error && err.message.includes("fetch failed"))
+    ) {
+      throw new Error(
+        "Cannot connect to the database. Check your internet connection and confirm your Supabase project is active."
+      );
+    }
+    throw err;
+  }
 }

@@ -132,15 +132,7 @@ export default function ImportWizard({ isps }: Props) {
       setSummary(result);
       setStep(3);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Import failed";
-      if (message.includes("unexpected response")) {
-        setError(
-          "Import failed — the file may be too large or the server timed out. Try a smaller file or check your internet connection."
-        );
-      } else {
-        setError(message);
-      }
+      setError(err instanceof Error ? err.message : "Import failed");
     } finally {
       setLoading(false);
     }

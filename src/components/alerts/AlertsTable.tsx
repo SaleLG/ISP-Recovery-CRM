@@ -178,7 +178,7 @@ export default function AlertsTable({
     try {
       await updateAlert(
         id,
-        action === "approve" ? "Resolved" : "Resolved",
+        "In Review",
         action === "approve" ? "Approved" : "Denied"
       );
       setApproveDialog(null);
@@ -186,6 +186,108 @@ export default function AlertsTable({
     } finally {
       setLoading(false);
     }
+  };
+
+  const renderAlertActions = (row: AlertRow) => {
+    const isPriceApproval = row.alert_type === "Price Approval Needed";
+    const isIspComplaint = row.alert_type === "ISP Complaint Needs Fix";
+    const customerName = getCustomerDisplayName(
+      row.custom_fields,
+      activeIspColumns,
+      row.full_name
+    );
+
+    if (row.alert_status === "Resolved") {
+      return (
+        <Typography variant="body2" color="text.secondary">
+          Completed
+        </Typography>
+      );
+    }
+
+    if (!isPriceApproval && !isIspComplaint) {
+      return (
+        <Typography variant="body2" color="text.secondary">
+          —
+        </Typography>
+      );
+    }
+
+    if (row.alert_status === "Needs Email") {
+      return (
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => handleAlertStatus(row.id, "Email Sent")}
+          disabled={loading}
+        >
+          Email Sent
+        </Button>
+      );
+    }
+
+    if (row.alert_status === "Email Sent") {
+      return (
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => handleAlertStatus(row.id, "In Review")}
+          disabled={loading}
+        >
+          In Review
+        </Button>
+      );
+    }
+
+    // In Review
+    if (isPriceApproval && row.price_approval_status === "Pending") {
+      return (
+        <Stack direction="row" spacing={1} sx={{ flexWrap: "nowrap" }}>
+          <Button
+            size="small"
+            variant="contained"
+            color="success"
+            onClick={() =>
+              setApproveDialog({
+                id: row.id,
+                name: customerName,
+                action: "approve",
+              })
+            }
+            disabled={loading}
+          >
+            Approve
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            color="error"
+            onClick={() =>
+              setApproveDialog({
+                id: row.id,
+                name: customerName,
+                action: "deny",
+              })
+            }
+            disabled={loading}
+          >
+            Deny
+          </Button>
+        </Stack>
+      );
+    }
+
+    return (
+      <Button
+        size="small"
+        variant="outlined"
+        color="success"
+        onClick={() => handleAlertStatus(row.id, "Resolved")}
+        disabled={loading}
+      >
+        Resolved
+      </Button>
+    );
   };
 
   const dynamicDataColumns: GridColDef[] = activeIspColumns.map((col) => ({
@@ -261,95 +363,23 @@ export default function AlertsTable({
       minWidth: 130,
       renderCell: (params) => (
         <Box sx={gridCellSx}>
-          <Typography variant="body2">{params.value || "—"}</Typography>
+          <Typography variant="body2">
+            {params.row.alert_type === "Price Approval Needed"
+              ? params.value || "—"
+              : "—"}
+          </Typography>
         </Box>
       ),
     },
     {
       field: "actions",
       headerName: "Actions",
-      width: 420,
-      minWidth: 380,
+      width: 260,
+      minWidth: 220,
       sortable: false,
       disableColumnMenu: true,
       renderCell: (params) => (
-        <Box sx={gridCellSx}>
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            {params.row.alert_status === "Needs Email" && (
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => handleAlertStatus(params.row.id, "Email Sent")}
-                disabled={loading}
-              >
-                Email Sent
-              </Button>
-            )}
-            {params.row.alert_status !== "In Review" &&
-              params.row.alert_status !== "Resolved" && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => handleAlertStatus(params.row.id, "In Review")}
-                  disabled={loading}
-                >
-                  In Review
-                </Button>
-              )}
-            {params.row.alert_status !== "Resolved" && (
-              <Button
-                size="small"
-                variant="outlined"
-                color="success"
-                onClick={() => handleAlertStatus(params.row.id, "Resolved")}
-                disabled={loading}
-              >
-                Resolved
-              </Button>
-            )}
-            {params.row.alert_type === "Price Approval Needed" &&
-              params.row.price_approval_status === "Pending" && (
-                <>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="success"
-                    onClick={() =>
-                      setApproveDialog({
-                        id: params.row.id,
-                        name: getCustomerDisplayName(
-                          params.row.custom_fields,
-                          activeIspColumns,
-                          params.row.full_name
-                        ),
-                        action: "approve",
-                      })
-                    }
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="error"
-                    onClick={() =>
-                      setApproveDialog({
-                        id: params.row.id,
-                        name: getCustomerDisplayName(
-                          params.row.custom_fields,
-                          activeIspColumns,
-                          params.row.full_name
-                        ),
-                        action: "deny",
-                      })
-                    }
-                  >
-                    Deny
-                  </Button>
-                </>
-              )}
-          </Stack>
-        </Box>
+        <Box sx={gridCellSx}>{renderAlertActions(params.row as AlertRow)}</Box>
       ),
     },
   ];
