@@ -177,18 +177,31 @@ const doc = new Document({
             ["Alerts", "Admin, Manager", "ISP complaints and price approvals"],
             ["ISPs", "Admin, Manager", "Create ISPs, define CRM columns, open each ISP's table"],
             ["Users", "Admin only", "Approve and manage user accounts"],
-            ["Profile", "Everyone", "Update name, avatar, password"],
+            ["Profile (header menu)", "Everyone", "Update name, avatar, password — click your avatar top-right"],
           ]
         ),
         new Paragraph({ spacing: { after: 200 } }),
 
         heading("4. Dashboard", HeadingLevel.HEADING_2),
-        para("The Dashboard gives a quick snapshot of CRM activity:"),
+        para(
+          "The Dashboard is role-specific — each user sees stats for the customers they are allowed to access."
+        ),
+        heading("4.1 Admin / Manager Dashboard", HeadingLevel.HEADING_3),
         bullet("Total customers and breakdown by team (Junior Sales, Senior Sales, Recycle Hold)"),
-        bullet("Outcomes (Rescheduled, New Account Created, Closed, etc.)"),
+        bullet("Unassigned Senior Sales escalations awaiting manager assignment"),
         bullet("No Reply — Recycle Hold, Ready to Recycle, and alerts needing attention"),
-        bullet("Charts by ISP, workflow stage, and call attempts by team"),
-        para("Use this page at the start of each day to see workload and results."),
+        bullet("Charts by ISP, workflow stage, assigned team, and call attempts"),
+        heading("4.2 Junior Sales Dashboard", HeadingLevel.HEADING_3),
+        bullet("My leads on Junior Sales Team — New, Attempt 1, Attempt 2, Attempt 3"),
+        bullet("Calls logged and outcomes (Rescheduled, Closed) on your leads"),
+        bullet("Charts: leads by ISP, outreach progress, and your calls by result"),
+        heading("4.3 Senior Sales Dashboard", HeadingLevel.HEADING_3),
+        bullet("My assigned escalations only (manager must assign leads to you)"),
+        bullet("Callback Requested, Rescheduled, New Accounts Created, Closed"),
+        bullet("Charts: your leads by ISP, stage, and calls by result"),
+        para(
+          "Senior Sales users do not see Junior Sales or company-wide totals. If the dashboard shows zero, ask a manager to assign escalated leads on the Senior Sales Team page."
+        ),
 
         heading("5. Setting Up an ISP (Required Before Import)", HeadingLevel.HEADING_2),
         para(

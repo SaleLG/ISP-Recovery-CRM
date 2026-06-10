@@ -23,14 +23,21 @@ const rename = (from, to) => {
   console.log(`Renamed: ${from} → ${to}`);
 };
 
+const removeDir = (name) => {
+  const p = path.join(docsDir, name);
+  if (fs.existsSync(p)) {
+    fs.rmSync(p, { recursive: true, force: true });
+    console.log(`Removed folder: ${name}`);
+  }
+};
+
 try {
+  remove("ISP_CRM_User_Guide.docx");
   remove("ISP_CRM_Example_Scenario.docx");
   remove("ISP_CRM_User_Guide_updated.docx");
   remove("ISP_CRM_Example_Scenario_updated.docx");
-  rename("ISP_CRM_Example_Scenario_NEW.docx", "ISP_CRM_Example_Scenario.docx");
-  if (!fs.existsSync(path.join(docsDir, "ISP_CRM_Example_Scenario.docx"))) {
-    rename("ISP_CRM_Example_Scenario_updated.docx", "ISP_CRM_Example_Scenario.docx");
-  }
+  remove("ISP_CRM_Example_Scenario_NEW.docx");
+  removeDir("new");
 
   execSync("npm run docs:user-guide", { stdio: "inherit", cwd: path.join(__dirname, "..") });
   execSync("npm run docs:scenario", { stdio: "inherit", cwd: path.join(__dirname, "..") });

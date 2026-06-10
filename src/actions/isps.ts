@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
@@ -92,16 +93,65 @@ export async function updateISP(id: string, updates: { name?: string; status?: s
   return data;
 }
 
-export async function deleteISP(id: string) {
+export async function deleteISP(
+  id: string
+): Promise<{ success: true; deletedCustomers: number } | { error: string }> {
   await requireRole(["admin", "manager"]);
   const supabase = await createClient();
+  const admin = createAdminClient();
 
-  const { error } = await supabase.from("isps").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  const { data: customers, error: fetchError } = await supabase
+    .from("customers")
+    .select("id")
+    .eq("isp_id", id);
+
+  if (fetchError) {
+    return { error: fetchError.message };
+  }
+
+  const customerIds = (customers ?? []).map((c) => c.id);
+
+  if (customerIds.length > 0) {
+    const { error: unlinkError } = await admin
+      .from("import_rows")
+      .update({ customer_id: null })
+      .in("customer_id", customerIds);
+
+    if (unlinkError) {
+      return { error: `Could not prepare customer delete: ${unlinkError.message}` };
+    }
+
+    const { error: customerDeleteError } = await admin
+      .from("customers")
+      .delete()
+      .in("id", customerIds);
+
+    if (customerDeleteError) {
+      return { error: `Could not delete customers: ${customerDeleteError.message}` };
+    }
+  }
+
+  const { error: importDeleteError } = await admin
+    .from("imports")
+    .delete()
+    .eq("isp_id", id);
+
+  if (importDeleteError) {
+    return { error: `Could not delete import history: ${importDeleteError.message}` };
+  }
+
+  const { error } = await admin.from("isps").delete().eq("id", id);
+  if (error) {
+    return { error: error.message };
+  }
+
   revalidatePath("/isps");
+  revalidatePath("/import");
   revalidatePath("/customers");
+  revalidatePath("/junior-sales");
   revalidatePath("/senior-sales");
   revalidatePath("/recycle-hold");
   revalidatePath("/alerts");
-  return { success: true };
+  revalidatePath("/dashboard");
+  return { success: true, deletedCustomers: customerIds.length };
 }

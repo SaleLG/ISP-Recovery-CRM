@@ -87,13 +87,30 @@ export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this ISP? Customers linked to it will remain but lose their ISP tag."))
+    const isp = isps.find((i) => i.id === id);
+    const customerNote =
+      isp?.customer_count && isp.customer_count > 0
+        ? ` This will permanently delete ${isp.customer_count} customer(s) and their call logs.`
+        : "";
+    if (
+      !confirm(
+        `Delete "${isp?.name ?? "this ISP"}"?${customerNote} This cannot be undone.`
+      )
+    ) {
       return;
+    }
+    setLoading(true);
     try {
-      await deleteISP(id);
+      const result = await deleteISP(id);
+      if ("error" in result) {
+        alert(result.error);
+        return;
+      }
       setIsps((prev) => prev.filter((i) => i.id !== id));
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete");
+      alert(err instanceof Error ? err.message : "Failed to delete ISP");
+    } finally {
+      setLoading(false);
     }
   };
 
