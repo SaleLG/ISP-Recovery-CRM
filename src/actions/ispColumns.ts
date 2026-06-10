@@ -105,6 +105,114 @@ export async function createISPColumn(params: {
   return normalized.find((c) => c.id === data.id) ?? data;
 }
 
+export async function createISPColumns(params: {
+  ispId: string;
+  items: {
+    label: string;
+    is_primary?: boolean;
+    used_for_matching?: boolean;
+  }[];
+}) {
+  await requireRole(["admin", "manager"]);
+  const supabase = await createClient();
+
+  const items = params.items
+    .map((item) => ({
+      label: item.label.trim(),
+      is_primary: item.is_primary ?? false,
+      used_for_matching: item.used_for_matching ?? false,
+    }))
+    .filter((item) => item.label.length > 0);
+
+  if (items.length === 0) {
+    return { columns: await getISPColumns(params.ispId), added: 0, skipped: 0 };
+  }
+
+  const existing = await getISPColumns(params.ispId);
+  const takenKeys = new Set(existing.map((c) => c.column_key));
+  const takenLabels = new Set(existing.map((c) => c.label.toLowerCase()));
+  const seenBatchLabels = new Set<string>();
+
+  const toInsert: {
+    isp_id: string;
+    column_key: string;
+    label: string;
+    field_type: string;
+    sort_order: number;
+    is_primary: boolean;
+    used_for_matching: boolean;
+  }[] = [];
+
+  let skipped = 0;
+  let nextSort =
+    existing.length > 0
+      ? Math.max(...existing.map((c) => c.sort_order)) + 1
+      : 0;
+
+  const hasExistingPrimary = existing.some((c) => c.is_primary);
+  let primaryAssigned = hasExistingPrimary;
+  let batchPrimarySet = false;
+
+  for (const item of items) {
+    const labelKey = item.label.toLowerCase();
+    if (takenLabels.has(labelKey) || seenBatchLabels.has(labelKey)) {
+      skipped += 1;
+      continue;
+    }
+    seenBatchLabels.add(labelKey);
+
+    let columnKey = slugifyColumnKey(item.label);
+    const baseKey = columnKey;
+    let suffix = 1;
+    while (takenKeys.has(columnKey)) {
+      columnKey = `${baseKey}_${suffix++}`;
+    }
+    takenKeys.add(columnKey);
+    takenLabels.add(labelKey);
+
+    let isPrimary = false;
+    if (item.is_primary && !batchPrimarySet) {
+      isPrimary = true;
+      batchPrimarySet = true;
+      primaryAssigned = true;
+    } else if (!primaryAssigned && toInsert.length === 0 && existing.length === 0) {
+      isPrimary = true;
+      batchPrimarySet = true;
+      primaryAssigned = true;
+    }
+
+    toInsert.push({
+      isp_id: params.ispId,
+      column_key: columnKey,
+      label: item.label,
+      field_type: "text",
+      sort_order: nextSort++,
+      is_primary: isPrimary,
+      used_for_matching: item.used_for_matching,
+    });
+  }
+
+  if (toInsert.some((row) => row.is_primary)) {
+    await supabase
+      .from("isp_columns")
+      .update({ is_primary: false })
+      .eq("isp_id", params.ispId);
+  }
+
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from("isp_columns").insert(toInsert);
+    if (error) throw new Error(error.message);
+  }
+
+  const normalized = await normalizeISPColumnOrder(params.ispId);
+  revalidatePaths(params.ispId);
+  return {
+    columns: normalized,
+    added: toInsert.length,
+    skipped,
+  };
+}
+
 export async function updateISPColumn(
   id: string,
   updates: {

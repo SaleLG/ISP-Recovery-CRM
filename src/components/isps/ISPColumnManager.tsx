@@ -19,14 +19,16 @@ import {
   Checkbox,
   Typography,
   Chip,
+  Alert,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
+import CloseIcon from "@mui/icons-material/Close";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import {
-  createISPColumn,
+  createISPColumns,
   updateISPColumn,
   deleteISPColumn,
   reorderISPColumns,
@@ -36,6 +38,22 @@ import type { ISPColumn } from "@/lib/types";
 
 function sortColumns(cols: ISPColumn[]) {
   return [...cols].sort((a, b) => a.sort_order - b.sort_order);
+}
+
+interface DraftColumn {
+  id: string;
+  label: string;
+  isPrimary: boolean;
+  usedForMatching: boolean;
+}
+
+function newDraftRow(isPrimary = false): DraftColumn {
+  return {
+    id: crypto.randomUUID(),
+    label: "",
+    isPrimary,
+    usedForMatching: false,
+  };
 }
 
 interface Props {
@@ -52,12 +70,15 @@ export default function ISPColumnManager({
   onChange,
 }: Props) {
   const [columns, setColumns] = useState(() => sortColumns(initialColumns));
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ISPColumn | null>(null);
+  const [draftRows, setDraftRows] = useState<DraftColumn[]>([newDraftRow()]);
   const [label, setLabel] = useState("");
   const [isPrimary, setIsPrimary] = useState(false);
   const [usedForMatching, setUsedForMatching] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
   const labelInputRef = useRef<HTMLInputElement>(null);
 
@@ -73,25 +94,16 @@ export default function ISPColumnManager({
   };
 
   useEffect(() => {
-    if (!dialogOpen) return;
+    if (!editDialogOpen) return;
     const timer = window.setTimeout(() => labelInputRef.current?.focus(), 50);
     return () => window.clearTimeout(timer);
-  }, [dialogOpen]);
+  }, [editDialogOpen]);
 
-  const resetCreateForm = (columnCount: number) => {
-    setEditing(null);
-    setLabel("");
-    setIsPrimary(columnCount === 0);
-    setUsedForMatching(false);
-    window.setTimeout(() => labelInputRef.current?.focus(), 50);
-  };
-
-  const openCreate = () => {
-    setEditing(null);
-    setLabel("");
-    setIsPrimary(columns.length === 0);
-    setUsedForMatching(false);
-    setDialogOpen(true);
+  const openAdd = () => {
+    const hasExistingPrimary = columns.some((c) => c.is_primary);
+    setDraftRows([newDraftRow(columns.length === 0 && !hasExistingPrimary)]);
+    setAddError(null);
+    setAddDialogOpen(true);
   };
 
   const openEdit = (column: ISPColumn) => {
@@ -99,31 +111,77 @@ export default function ISPColumnManager({
     setLabel(column.label);
     setIsPrimary(column.is_primary);
     setUsedForMatching(column.used_for_matching);
-    setDialogOpen(true);
+    setEditDialogOpen(true);
   };
 
-  const handleSave = async () => {
-    if (!label.trim()) return;
+  const updateDraftRow = (id: string, patch: Partial<DraftColumn>) => {
+    setDraftRows((rows) =>
+      rows.map((row) => {
+        if (row.id !== id) {
+          if (patch.isPrimary) return { ...row, isPrimary: false };
+          return row;
+        }
+        return { ...row, ...patch };
+      })
+    );
+    setAddError(null);
+  };
+
+  const addDraftRow = () => {
+    setDraftRows((rows) => [...rows, newDraftRow()]);
+  };
+
+  const removeDraftRow = (id: string) => {
+    setDraftRows((rows) => {
+      if (rows.length <= 1) return [newDraftRow(columns.length === 0)];
+      return rows.filter((row) => row.id !== id);
+    });
+  };
+
+  const readyDraftRows = draftRows.filter((row) => row.label.trim().length > 0);
+
+  const handleSaveDrafts = async () => {
+    if (readyDraftRows.length === 0) return;
+    setLoading(true);
+    setAddError(null);
+    try {
+      const result = await createISPColumns({
+        ispId,
+        items: readyDraftRows.map((row) => ({
+          label: row.label,
+          is_primary: row.isPrimary,
+          used_for_matching: row.usedForMatching,
+        })),
+      });
+      const refreshed = sortColumns(result.columns);
+      setColumns(refreshed);
+      onChange(refreshed);
+
+      if (result.added === 0) {
+        setAddError("No new columns were added — those names already exist.");
+        return;
+      }
+
+      setAddDialogOpen(false);
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Failed to add columns");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditSave = async () => {
+    if (!editing || !label.trim()) return;
     setLoading(true);
     try {
-      if (editing) {
-        await updateISPColumn(editing.id, {
-          label,
-          is_primary: isPrimary,
-          used_for_matching: usedForMatching,
-        });
-        await refreshColumns();
-        setDialogOpen(false);
-      } else {
-        await createISPColumn({
-          ispId,
-          label,
-          is_primary: isPrimary,
-          used_for_matching: usedForMatching,
-        });
-        const refreshed = await refreshColumns();
-        resetCreateForm(refreshed.length);
-      }
+      await updateISPColumn(editing.id, {
+        label,
+        is_primary: isPrimary,
+        used_for_matching: usedForMatching,
+      });
+      await refreshColumns();
+      setEditDialogOpen(false);
+      setEditing(null);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to save column");
     } finally {
@@ -225,10 +283,10 @@ export default function ISPColumnManager({
       <Button
         variant="outlined"
         startIcon={<AddIcon />}
-        onClick={openCreate}
+        onClick={openAdd}
         sx={{ mb: 2 }}
       >
-        Add Column
+        Add Columns
       </Button>
 
       {columns.length === 0 ? (
@@ -300,12 +358,123 @@ export default function ISPColumnManager({
       )}
 
       <Dialog
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
+        open={addDialogOpen}
+        onClose={() => !loading && setAddDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Add Columns</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Enter each column on its own row. Use <strong>Primary</strong> for the
+            customer name column and <strong>Match key</strong> for fields used
+            to detect duplicate rows on import.
+          </Typography>
+
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+            {draftRows.map((row, index) => (
+              <Box
+                key={row.id}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  flexWrap: { xs: "wrap", sm: "nowrap" },
+                }}
+              >
+                <TextField
+                  autoFocus={index === 0}
+                  label="Column name"
+                  value={row.label}
+                  onChange={(e) =>
+                    updateDraftRow(row.id, { label: e.target.value })
+                  }
+                  placeholder="e.g. Phone, ACCT#"
+                  size="small"
+                  sx={{ flex: 1, minWidth: 160 }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (index === draftRows.length - 1) addDraftRow();
+                    }
+                  }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={row.isPrimary}
+                      onChange={(e) =>
+                        updateDraftRow(row.id, { isPrimary: e.target.checked })
+                      }
+                    />
+                  }
+                  label="Primary"
+                  sx={{ mr: 0, whiteSpace: "nowrap" }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={row.usedForMatching}
+                      onChange={(e) =>
+                        updateDraftRow(row.id, {
+                          usedForMatching: e.target.checked,
+                        })
+                      }
+                    />
+                  }
+                  label="Match key"
+                  sx={{ mr: 0, whiteSpace: "nowrap" }}
+                />
+                {draftRows.length > 1 && (
+                  <IconButton
+                    size="small"
+                    aria-label="Remove row"
+                    onClick={() => removeDraftRow(row.id)}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                )}
+              </Box>
+            ))}
+          </Box>
+
+          <Button
+            startIcon={<AddIcon />}
+            onClick={addDraftRow}
+            sx={{ mt: 2 }}
+          >
+            Add
+          </Button>
+
+          {addError && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              {addError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddDialogOpen(false)} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveDrafts}
+            disabled={loading || readyDraftRows.length === 0}
+          >
+            {loading ? "Saving..." : "Save Columns"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={editDialogOpen}
+        onClose={() => !loading && setEditDialogOpen(false)}
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>{editing ? "Edit Column" : "Add Column"}</DialogTitle>
+        <DialogTitle>Edit Column</DialogTitle>
         <DialogContent>
           <TextField
             inputRef={labelInputRef}
@@ -319,7 +488,7 @@ export default function ISPColumnManager({
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                handleSave();
+                handleEditSave();
               }
             }}
           />
@@ -343,8 +512,14 @@ export default function ISPColumnManager({
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave} disabled={loading}>
+          <Button onClick={() => setEditDialogOpen(false)} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleEditSave}
+            disabled={loading}
+          >
             Save
           </Button>
         </DialogActions>
