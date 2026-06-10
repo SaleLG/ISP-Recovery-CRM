@@ -20,6 +20,10 @@ import {
   Paper,
   Chip,
   Typography,
+  Alert,
+  List,
+  ListItem,
+  ListItemText,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -46,6 +50,9 @@ export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
   const [name, setName] = useState("");
   const [status, setStatus] = useState("Active");
   const [loading, setLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ISP | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const openCreate = () => {
     setEditing(null);
@@ -86,31 +93,29 @@ export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const isp = isps.find((i) => i.id === id);
-    const customerNote =
-      isp?.customer_count && isp.customer_count > 0
-        ? ` This will permanently delete ${isp.customer_count} customer(s) and their call logs.`
-        : "";
-    if (
-      !confirm(
-        `Delete "${isp?.name ?? "this ISP"}"?${customerNote} This cannot be undone.`
-      )
-    ) {
-      return;
-    }
-    setLoading(true);
+  const openDelete = (isp: ISP) => {
+    setDeleteError(null);
+    setDeleteTarget(isp);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
     try {
-      const result = await deleteISP(id);
+      const result = await deleteISP(deleteTarget.id);
       if ("error" in result) {
-        alert(result.error);
+        setDeleteError(result.error);
         return;
       }
-      setIsps((prev) => prev.filter((i) => i.id !== id));
+      setIsps((prev) => prev.filter((i) => i.id !== deleteTarget.id));
+      setDeleteTarget(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete ISP");
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete ISP"
+      );
     } finally {
-      setLoading(false);
+      setDeleting(false);
     }
   };
 
@@ -193,7 +198,7 @@ export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
                     <IconButton
                       size="small"
                       color="error"
-                      onClick={() => handleDelete(isp.id)}
+                      onClick={() => openDelete(isp)}
                     >
                       <DeleteIcon />
                     </IconButton>
@@ -235,6 +240,83 @@ export default function ISPManager({ isps: initial }: { isps: ISP[] }) {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setColumnsDialogIsp(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={!!deleteTarget}
+        onClose={() => !deleting && setDeleteTarget(null)}
+      >
+        <DialogTitle>Delete ISP — {deleteTarget?.name}</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 2 }}>
+            You are about to permanently remove this ISP from the CRM. Please
+            review what will be deleted:
+          </Typography>
+
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            This action cannot be undone.
+          </Alert>
+
+          <List dense disablePadding>
+            <ListItem disableGutters>
+              <ListItemText primary="The ISP record and its CRM column setup" />
+            </ListItem>
+            <ListItem disableGutters>
+              <ListItemText primary="Import history for this ISP" />
+            </ListItem>
+            {deleteTarget?.customer_count && deleteTarget.customer_count > 0 ? (
+              <>
+                <ListItem disableGutters>
+                  <ListItemText
+                    primary={`${deleteTarget.customer_count} customer record${deleteTarget.customer_count === 1 ? "" : "s"} tied to this ISP`}
+                    secondary="All customer data for this ISP will be removed from Master CRM, Junior/Senior Sales, and Recycle views."
+                  />
+                </ListItem>
+                <ListItem disableGutters>
+                  <ListItemText
+                    primary="Related call logs, notes, and activity history"
+                    secondary="Deleted with those customers."
+                  />
+                </ListItem>
+              </>
+            ) : (
+              <ListItem disableGutters>
+                <ListItemText primary="No customers are currently linked to this ISP" />
+              </ListItem>
+            )}
+          </List>
+
+          {deleteTarget?.customer_count && deleteTarget.customer_count > 0 && (
+            <Alert severity="error" sx={{ mt: 1 }}>
+              Deleting <strong>{deleteTarget.name}</strong> will permanently
+              erase {deleteTarget.customer_count} customer
+              {deleteTarget.customer_count === 1 ? "" : "s"} and everything
+              associated with them.
+            </Alert>
+          )}
+
+          {deleteError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {deleteError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setDeleteTarget(null)}
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleConfirmDelete}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting..." : "Delete ISP"}
+          </Button>
         </DialogActions>
       </Dialog>
 
