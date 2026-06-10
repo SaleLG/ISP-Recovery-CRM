@@ -9,9 +9,11 @@ import type { Profile } from "@/lib/types";
 
 export default function AppShell({
   profile,
+  alertCount = 0,
   children,
 }: {
   profile: Profile;
+  alertCount?: number;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -25,7 +27,7 @@ export default function AppShell({
 
   return (
     <Box sx={{ display: "flex", minHeight: "100vh" }}>
-      <Sidebar profile={profile} onNavigate={navigate} />
+      <Sidebar profile={profile} alertCount={alertCount} onNavigate={navigate} />
       <Box
         component="main"
         sx={{

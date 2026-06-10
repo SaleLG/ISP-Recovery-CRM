@@ -433,6 +433,23 @@ export async function getActivities(customerId: string) {
   return data;
 }
 
+const ALERTS_FILTER_OR =
+  "and(alert_status.eq.Needs Email,alert_type.neq.None),and(alert_type.eq.ISP Complaint Needs Fix,alert_status.neq.Resolved),and(alert_type.eq.Price Approval Needed,alert_status.neq.Resolved)";
+
+export async function getAlertCount(): Promise<number> {
+  await requireRole(["admin", "manager"]);
+  const supabase = await createClient();
+
+  const { count, error } = await supabase
+    .from("customers")
+    .select("*", { count: "exact", head: true })
+    .eq("alert_status", "Needs Email")
+    .neq("alert_type", "None");
+
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
 export async function getAlerts() {
   await requireRole(["admin", "manager"]);
   const supabase = await createClient();
@@ -440,9 +457,7 @@ export async function getAlerts() {
   const { data, error } = await supabase
     .from("customers")
     .select("*, isps(id, name)")
-    .or(
-      "and(alert_status.eq.Needs Email,alert_type.neq.None),and(alert_type.eq.ISP Complaint Needs Fix,alert_status.neq.Resolved),and(alert_type.eq.Price Approval Needed,alert_status.neq.Resolved)"
-    )
+    .or(ALERTS_FILTER_OR)
     .order("updated_at", { ascending: false });
 
   if (error) throw new Error(error.message);

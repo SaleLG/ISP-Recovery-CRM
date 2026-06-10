@@ -3,12 +3,16 @@ import type { Profile } from "@/lib/types";
 
 export default function AppLayout({
   profile,
+  alertCount = 0,
   children,
 }: {
   profile: Profile;
+  alertCount?: number;
   children: React.ReactNode;
 }) {
   return (
-    <AppShell profile={profile}>{children}</AppShell>
+    <AppShell profile={profile} alertCount={alertCount}>
+      {children}
+    </AppShell>
   );
 }

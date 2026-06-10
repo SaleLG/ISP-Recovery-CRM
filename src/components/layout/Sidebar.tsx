@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Drawer,
@@ -11,6 +11,7 @@ import {
   Typography,
   Box,
   Divider,
+  Badge,
 } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
@@ -22,6 +23,7 @@ import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
 import BusinessIcon from "@mui/icons-material/Business";
 import ManageAccountsIcon from "@mui/icons-material/ManageAccounts";
 import { getNavItemsForRole } from "@/lib/constants";
+import { getAlertCount } from "@/actions/customers";
 import type { Profile } from "@/lib/types";
 import {
   DRAWER_WIDTH,
@@ -44,15 +46,30 @@ const ICONS: Record<string, React.ReactNode> = {
 
 export default function Sidebar({
   profile,
+  alertCount: initialAlertCount = 0,
   onNavigate,
 }: {
   profile: Profile;
+  alertCount?: number;
   onNavigate: (href: string) => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [alertCount, setAlertCount] = useState(initialAlertCount);
 
   const visibleItems = getNavItemsForRole(profile.role);
+  const showAlertsBadge = visibleItems.some((item) => item.href === "/alerts");
+
+  useEffect(() => {
+    setAlertCount(initialAlertCount);
+  }, [initialAlertCount]);
+
+  useEffect(() => {
+    if (!showAlertsBadge) return;
+    getAlertCount()
+      .then(setAlertCount)
+      .catch(() => setAlertCount(0));
+  }, [showAlertsBadge, pathname]);
 
   useEffect(() => {
     visibleItems.forEach((item) => router.prefetch(item.href));
@@ -98,6 +115,8 @@ export default function Sidebar({
           const selected =
             pathname === item.href ||
             pathname.startsWith(item.href + "/");
+          const isAlerts = item.href === "/alerts";
+          const icon = ICONS[item.label];
 
           return (
             <ListItemButton
@@ -123,7 +142,27 @@ export default function Sidebar({
                 },
               }}
             >
-              <ListItemIcon>{ICONS[item.label]}</ListItemIcon>
+              <ListItemIcon>
+                {isAlerts && alertCount > 0 ? (
+                  <Badge
+                    badgeContent={alertCount}
+                    color="error"
+                    max={99}
+                    sx={{
+                      "& .MuiBadge-badge": {
+                        fontWeight: 700,
+                        fontSize: "0.65rem",
+                        minWidth: 18,
+                        height: 18,
+                      },
+                    }}
+                  >
+                    {icon}
+                  </Badge>
+                ) : (
+                  icon
+                )}
+              </ListItemIcon>
               <ListItemText
                 primary={item.label}
                 primaryTypographyProps={{
