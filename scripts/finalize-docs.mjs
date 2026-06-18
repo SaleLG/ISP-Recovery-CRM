@@ -34,6 +34,8 @@ const removeDir = (name) => {
 try {
   remove("ISP_CRM_User_Guide.docx");
   remove("ISP_CRM_Example_Scenario.docx");
+  remove("ISP_CRM_Workflow_Reference.docx");
+  remove("ISP_CRM_Client_Step_by_Step_Guide.docx");
   remove("ISP_CRM_User_Guide_updated.docx");
   remove("ISP_CRM_Example_Scenario_updated.docx");
   remove("ISP_CRM_Example_Scenario_NEW.docx");
@@ -41,6 +43,8 @@ try {
 
   execSync("npm run docs:user-guide", { stdio: "inherit", cwd: path.join(__dirname, "..") });
   execSync("npm run docs:scenario", { stdio: "inherit", cwd: path.join(__dirname, "..") });
+  execSync("npm run docs:workflow", { stdio: "inherit", cwd: path.join(__dirname, "..") });
+  execSync("npm run docs:beginner-guide", { stdio: "inherit", cwd: path.join(__dirname, "..") });
 
   console.log("\nDocs folder is ready:");
   for (const name of fs.readdirSync(docsDir)) {

@@ -39,8 +39,8 @@ export default async function CustomersPage({
         Master CRM
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-        Each ISP has its own CRM table with custom columns. Select an ISP tab to
-        view and manage that ISP&apos;s customers.
+        Each ISP has its own CRM table with custom columns. Select an ISP to view
+        and manage that ISP&apos;s customers.
       </Typography>
 
       {isps.length > 0 && (
@@ -76,7 +76,7 @@ export default async function CustomersPage({
             teamMembers={seniorTeamMembers}
             currentUserId={profile.id}
             defaultIspId={selectedIspId}
-            ispSelectorVariant="tabs"
+            ispSelectorVariant="searchable"
             syncUrlOnIspChange
             hideAllIspTab
             requireIspSelection

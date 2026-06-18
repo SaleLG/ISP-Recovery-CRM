@@ -24,6 +24,7 @@ import {
   Tabs,
   Tab,
   Alert,
+  Autocomplete,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -155,7 +156,7 @@ interface Props {
   teamMembers?: { id: string; full_name: string | null }[];
   currentUserId?: string;
   defaultIspId?: string;
-  ispSelectorVariant?: "dropdown" | "tabs";
+  ispSelectorVariant?: "dropdown" | "tabs" | "searchable";
   syncUrlOnIspChange?: boolean;
   hideAllIspTab?: boolean;
   requireIspSelection?: boolean;
@@ -363,7 +364,9 @@ export default function CustomerTable({
     "& .MuiSelect-select": { py: 0.75 },
   } as const;
 
-  const isMasterCrm = ispSelectorVariant === "tabs" && requireIspSelection;
+  const isMasterCrm =
+    (ispSelectorVariant === "tabs" || ispSelectorVariant === "searchable") &&
+    requireIspSelection;
   const hasIspColumns = activeIspColumns.length > 0;
   const showTable = !isMasterCrm || hasIspColumns;
 
@@ -700,6 +703,62 @@ export default function CustomerTable({
               )}
               {selectedIsp && activeIspColumns.length > 0 && (
                 <Typography variant="body2" color="text.secondary">
+                  Showing {filtered.length} customer
+                  {filtered.length === 1 ? "" : "s"} for {selectedIsp.name}
+                </Typography>
+              )}
+            </>
+          )}
+        </Box>
+      )}
+
+      {ispSelectorVariant === "searchable" && (
+        <Box sx={{ mb: 2 }}>
+          {isps.length === 0 ? (
+            <Alert severity="info">
+              No ISPs yet. Add an ISP on the ISPs page, define its columns, then
+              import customers.
+            </Alert>
+          ) : (
+            <>
+              <Autocomplete
+                options={isps}
+                value={selectedIsp ?? null}
+                onChange={(_, newValue) =>
+                  handleIspChange(newValue?.id ?? "")
+                }
+                getOptionLabel={(option) => option.name}
+                isOptionEqualToValue={(option, val) => option.id === val.id}
+                openOnFocus
+                sx={{ maxWidth: 360 }}
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    {option.name} (
+                    {customers.filter((c) => c.isp_id === option.id).length})
+                  </li>
+                )}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Select ISP"
+                    size="small"
+                    placeholder="Search ISP..."
+                  />
+                )}
+              />
+              {selectedIsp && activeIspColumns.length === 0 && (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  {selectedIsp.name} has no CRM columns yet. Go to the ISPs page,
+                  click <strong>Columns</strong>, and add the fields for this
+                  ISP&apos;s spreadsheet before importing customers.
+                </Alert>
+              )}
+              {selectedIsp && activeIspColumns.length > 0 && (
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 1 }}
+                >
                   Showing {filtered.length} customer
                   {filtered.length === 1 ? "" : "s"} for {selectedIsp.name}
                 </Typography>
