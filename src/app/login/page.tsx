@@ -4,12 +4,10 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Button,
-  Typography,
   Alert,
   FormControlLabel,
   Checkbox,
   Link as MuiLink,
-  Stack,
   Box,
 } from "@mui/material";
 import Link from "next/link";
@@ -134,20 +132,6 @@ function LoginForm() {
           {loading ? "Signing in..." : "Sign In"}
         </Button>
       </form>
-
-      <Stack direction="row" justifyContent="center" spacing={0.5}>
-        <Typography variant="body2" color="text.secondary">
-          Don&apos;t have an account?
-        </Typography>
-        <MuiLink
-          component={Link}
-          href="/signup"
-          variant="body2"
-          underline="hover"
-        >
-          Sign up
-        </MuiLink>
-      </Stack>
     </AuthPage>
   );
 }

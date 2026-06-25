@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   full_name TEXT,
   email TEXT,
   avatar_url TEXT,
-  role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'junior_sales', 'senior_sales')),
+  role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'va_manager', 'junior_sales', 'senior_sales')),
   team TEXT CHECK (team IN ('Junior Sales Team', 'Senior Sales Team')),
   is_active BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -299,7 +299,7 @@ CREATE POLICY "Users can read own profile"
 DROP POLICY IF EXISTS "Admin/manager can read all profiles" ON profiles;
 CREATE POLICY "Admin/manager can read all profiles"
   ON profiles FOR SELECT
-  USING (get_my_role() IN ('admin', 'manager'));
+  USING (get_my_role() IN ('admin', 'manager', 'va_manager'));
 
 DROP POLICY IF EXISTS "Admin can manage profiles" ON profiles;
 CREATE POLICY "Admin can manage profiles"
@@ -332,7 +332,7 @@ CREATE POLICY "Admin/manager can manage ISPs"
 DROP POLICY IF EXISTS "Admin/manager see all customers" ON customers;
 CREATE POLICY "Admin/manager see all customers"
   ON customers FOR SELECT
-  USING (get_my_role() IN ('admin', 'manager'));
+  USING (get_my_role() IN ('admin', 'manager', 'va_manager'));
 
 DROP POLICY IF EXISTS "Junior sales see junior sales customers" ON customers;
 CREATE POLICY "Junior sales see junior sales customers"
@@ -356,7 +356,7 @@ CREATE POLICY "Senior sales see senior sales customers"
 DROP POLICY IF EXISTS "Admin/manager can update all customers" ON customers;
 CREATE POLICY "Admin/manager can update all customers"
   ON customers FOR UPDATE
-  USING (get_my_role() IN ('admin', 'manager'));
+  USING (get_my_role() IN ('admin', 'manager', 'va_manager'));
 
 DROP POLICY IF EXISTS "Junior sales can update junior sales customers" ON customers;
 CREATE POLICY "Junior sales can update junior sales customers"

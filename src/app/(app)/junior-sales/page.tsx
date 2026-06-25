@@ -19,7 +19,7 @@ export default async function JuniorSalesPage({
 }: {
   searchParams: Promise<{ isp?: string }>;
 }) {
-  await requireRole(["admin", "manager", "junior_sales"]);
+  await requireRole(["admin", "manager", "va_manager", "junior_sales"]);
   const { isp } = await searchParams;
   const [customers, isps] = await Promise.all([
     getCustomers({ assigned_team: "Junior Sales Team" }),

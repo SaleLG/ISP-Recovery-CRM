@@ -98,7 +98,7 @@ export async function updateCustomer(
   }
 
   if (payload.assigned_user_id !== undefined) {
-    if (role !== "admin" && role !== "manager") {
+    if (role !== "admin" && role !== "manager" && role !== "va_manager") {
       throw new Error("Only managers can assign senior sales reps");
     }
     if (existing.assigned_team === "Recycle Hold") {
@@ -497,7 +497,7 @@ const ALERTS_FILTER_OR =
   "and(alert_status.eq.Needs Email,alert_type.neq.None),and(alert_type.eq.ISP Complaint Needs Fix,alert_status.neq.Resolved),and(alert_type.eq.Price Approval Needed,alert_status.neq.Resolved)";
 
 export async function getAlertCount(): Promise<number> {
-  await requireRole(["admin", "manager"]);
+  await requireRole(["admin", "manager", "va_manager"]);
   const supabase = await createClient();
 
   const { count, error } = await supabase
@@ -511,7 +511,7 @@ export async function getAlertCount(): Promise<number> {
 }
 
 export async function getAlerts() {
-  await requireRole(["admin", "manager"]);
+  await requireRole(["admin", "manager", "va_manager"]);
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -529,7 +529,7 @@ export async function updateAlert(
   alertStatus: string,
   priceApprovalStatus?: string
 ) {
-  await requireRole(["admin", "manager"]);
+  await requireRole(["admin", "manager", "va_manager"]);
   const supabase = await createClient();
 
   const updates: Record<string, unknown> = { alert_status: alertStatus };

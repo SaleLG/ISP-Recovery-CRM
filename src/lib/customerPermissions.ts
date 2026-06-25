@@ -6,12 +6,16 @@ export function isManager(profile: Profile) {
   return role === "admin" || role === "manager";
 }
 
+export function isVaManager(profile: Profile) {
+  return normalizeRole(profile.role) === "va_manager";
+}
+
 export function canEditWorkflowFields(profile: Profile) {
   return isManager(profile);
 }
 
 export function canAssignSeniorAgent(profile: Profile) {
-  return isManager(profile);
+  return isManager(profile) || isVaManager(profile);
 }
 
 export function canAssignSeniorToCustomer(customer: Customer) {
@@ -25,13 +29,20 @@ export function canEditSeniorAssignment(customer: Customer, profile: Profile) {
 export function canLogCall(customer: Customer, profile: Profile) {
   if (isManager(profile)) return true;
   if (
-    profile.role === "junior_sales" &&
+    isVaManager(profile) &&
+    (customer.assigned_team === "Junior Sales Team" ||
+      customer.assigned_team === "Senior Sales Team")
+  ) {
+    return true;
+  }
+  if (
+    normalizeRole(profile.role) === "junior_sales" &&
     customer.assigned_team === "Junior Sales Team"
   ) {
     return true;
   }
   if (
-    profile.role === "senior_sales" &&
+    normalizeRole(profile.role) === "senior_sales" &&
     customer.assigned_team === "Senior Sales Team"
   ) {
     return true;
@@ -41,7 +52,11 @@ export function canLogCall(customer: Customer, profile: Profile) {
 
 export function canUseSeniorSalesActions(customer: Customer, profile: Profile) {
   if (customer.assigned_team !== "Senior Sales Team") return false;
-  return isManager(profile) || profile.role === "senior_sales";
+  return (
+    isManager(profile) ||
+    isVaManager(profile) ||
+    normalizeRole(profile.role) === "senior_sales"
+  );
 }
 
 export function canUseRecycleHoldActions(customer: Customer, profile: Profile) {

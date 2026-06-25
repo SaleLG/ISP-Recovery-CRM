@@ -21,7 +21,12 @@ export default async function SeniorSalesPage({
 }: {
   searchParams: Promise<{ isp?: string }>;
 }) {
-  const profile = await requireRole(["admin", "manager", "senior_sales"]);
+  const profile = await requireRole([
+    "admin",
+    "manager",
+    "va_manager",
+    "senior_sales",
+  ]);
   const role = normalizeRole(profile.role);
   const { isp } = await searchParams;
 
@@ -39,7 +44,8 @@ export default async function SeniorSalesPage({
     getTeamMembers("Senior Sales Team"),
   ]);
 
-  const isManager = role === "admin" || role === "manager";
+  const canManage =
+    role === "admin" || role === "manager" || role === "va_manager";
 
   const selectedIspId =
     isp && isps.some((item) => item.id === isp) ? isp : isps[0]?.id ?? "";
@@ -56,7 +62,7 @@ export default async function SeniorSalesPage({
           : "Escalated callback and reschedule leads from Junior Sales. Assign available senior reps to each lead. Select an ISP tab to view that ISP's customers."}
       </Typography>
 
-      {isManager && customers.some((c) => c.assigned_team === "Senior Sales Team" && !c.assigned_user_id) && (
+      {canManage && customers.some((c) => c.assigned_team === "Senior Sales Team" && !c.assigned_user_id) && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           Unassigned escalations need a senior rep. Use the{" "}
           <strong>Assigned To</strong> column to assign each lead, or filter by{" "}
@@ -76,9 +82,9 @@ export default async function SeniorSalesPage({
             ispColumns={selectedIsp?.columns ?? []}
             showTeamFilter={false}
             defaultTeam="Senior Sales Team"
-            showAssigneeFilter={isManager}
+            showAssigneeFilter={canManage}
             showAssigneeColumn
-            allowAssign={isManager}
+            allowAssign={canManage}
             teamMembers={seniorTeamMembers}
             currentUserId={profile.id}
             defaultIspId={selectedIspId}

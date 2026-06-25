@@ -11,7 +11,9 @@ export default async function AuthenticatedLayout({
   const profile = await requireAuth();
   const role = normalizeRole(profile.role);
   const alertCount =
-    role === "admin" || role === "manager" ? await getAlertCount() : 0;
+    role === "admin" || role === "manager" || role === "va_manager"
+      ? await getAlertCount()
+      : 0;
 
   return (
     <AppLayout profile={profile} alertCount={alertCount}>

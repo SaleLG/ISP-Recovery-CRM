@@ -19,7 +19,7 @@ export default async function AlertsPage({
 }: {
   searchParams: Promise<{ isp?: string }>;
 }) {
-  await requireRole(["admin", "manager"]);
+  await requireRole(["admin", "manager", "va_manager"]);
   const { isp } = await searchParams;
   const [alerts, isps] = await Promise.all([getAlerts(), getISPsWithCounts()]);
 

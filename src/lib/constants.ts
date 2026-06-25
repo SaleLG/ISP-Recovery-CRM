@@ -13,6 +13,7 @@ export type Team = (typeof TEAMS)[number];
 export const ROLES = [
   "admin",
   "manager",
+  "va_manager",
   "junior_sales",
   "senior_sales",
 ] as const;
@@ -189,26 +190,26 @@ export const NAV_ITEMS = [
   {
     label: "Dashboard",
     href: "/dashboard",
-    roles: ["admin", "manager", "junior_sales", "senior_sales"],
+    roles: ["admin", "manager", "va_manager", "junior_sales", "senior_sales"],
   },
   { label: "Import Customers", href: "/import", roles: ["admin", "manager"] },
   { label: "Master CRM", href: "/customers", roles: ["admin", "manager"] },
   {
     label: "Junior Sales Team",
     href: "/junior-sales",
-    roles: ["admin", "manager", "junior_sales"],
+    roles: ["admin", "manager", "va_manager", "junior_sales"],
   },
   {
     label: "Senior Sales Team",
     href: "/senior-sales",
-    roles: ["admin", "manager", "senior_sales"],
+    roles: ["admin", "manager", "va_manager", "senior_sales"],
   },
   {
     label: "No Reply — Recycle",
     href: "/recycle-hold",
     roles: ["admin", "manager"],
   },
-  { label: "Alerts", href: "/alerts", roles: ["admin", "manager"] },
+  { label: "Alerts", href: "/alerts", roles: ["admin", "manager", "va_manager"] },
   { label: "ISPs", href: "/isps", roles: ["admin", "manager"] },
   { label: "Users", href: "/users", roles: ["admin"] },
 ] as const;
@@ -246,6 +247,12 @@ export function getNavItemsForRole(role: string | null | undefined): NavItem[] {
       "/recycle-hold",
       "/alerts",
       "/isps",
+    ],
+    va_manager: [
+      "/dashboard",
+      "/junior-sales",
+      "/senior-sales",
+      "/alerts",
     ],
     junior_sales: ["/dashboard", "/junior-sales"],
     senior_sales: ["/dashboard", "/senior-sales"],

@@ -86,6 +86,58 @@ export async function createUser(params: {
   return profile;
 }
 
+export async function deleteUser(id: string) {
+  const currentUser = await requireRole(["admin"]);
+  if (currentUser.id === id) {
+    throw new Error("You cannot delete your own account");
+  }
+
+  const admin = createAdminClient();
+
+  const { data: target, error: lookupError } = await admin
+    .from("profiles")
+    .select("id, auth_user_id")
+    .eq("id", id)
+    .single();
+
+  if (lookupError) throw new Error(lookupError.message);
+  if (!target) throw new Error("User not found");
+
+  // Detach the user from records that reference them so the delete is not
+  // blocked by foreign keys and historical data is preserved.
+  await admin
+    .from("customers")
+    .update({ assigned_user_id: null })
+    .eq("assigned_user_id", id);
+  await admin.from("call_logs").update({ user_id: null }).eq("user_id", id);
+  await admin
+    .from("call_logs")
+    .update({ senior_assisted_user_id: null })
+    .eq("senior_assisted_user_id", id);
+  await admin.from("activities").update({ user_id: null }).eq("user_id", id);
+  await admin
+    .from("customer_notes")
+    .update({ user_id: null })
+    .eq("user_id", id);
+
+  const { error: profileError } = await admin
+    .from("profiles")
+    .delete()
+    .eq("id", id);
+
+  if (profileError) throw new Error(profileError.message);
+
+  if (target.auth_user_id) {
+    const { error: authError } = await admin.auth.admin.deleteUser(
+      target.auth_user_id
+    );
+    if (authError) throw new Error(authError.message);
+  }
+
+  revalidatePath("/users");
+  return { success: true };
+}
+
 export async function approveUser(id: string) {
   await requireRole(["admin"]);
   const supabase = await createClient();

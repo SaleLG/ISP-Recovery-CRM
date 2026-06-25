@@ -89,34 +89,16 @@ export async function signIn(
   redirect("/dashboard");
 }
 
-export async function signUp(params: {
+export async function signUp(_params: {
   email: string;
   password: string;
   full_name: string;
 }) {
-  const supabase = await createClient();
-
-  const { data, error } = await supabase.auth.signUp({
-    email: params.email,
-    password: params.password,
-    options: {
-      data: {
-        full_name: params.full_name,
-        role: "junior_sales",
-        approved: false,
-      },
-    },
-  });
-
-  if (error) return { error: error.message };
-  if (!data.user) return { error: "Sign up failed" };
-
-  await supabase.auth.signOut();
-
+  // Public self-registration is disabled. Accounts are created only by
+  // administrators through the Users admin controls.
   return {
-    success: true,
-    message:
-      "Account created successfully. An administrator must approve your account before you can sign in.",
+    error:
+      "Public sign-up is disabled. Please contact an administrator to have an account created for you.",
   };
 }
 
