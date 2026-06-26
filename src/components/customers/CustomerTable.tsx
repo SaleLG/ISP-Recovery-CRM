@@ -82,11 +82,13 @@ interface FilterSelectProps {
 }
 
 function formatAssigneeLabel(row: CustomerRow): string | null {
-  if (
-    row.assigned_team === "Recycle Hold" ||
-    row.assigned_team === "Junior Sales Team"
-  ) {
+  if (row.assigned_team === "Recycle Hold") {
     return null;
+  }
+  if (row.assigned_team === "Junior Sales Team") {
+    return row.assigned_user_id
+      ? row.profiles?.full_name || "Unknown"
+      : "Available";
   }
   if (!row.assigned_user_id) return "Unassigned";
   return row.profiles?.full_name || "Unknown";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Card,
@@ -29,10 +29,12 @@ import {
   usesJuniorTextOnly,
   canRecycleToJunior,
 } from "@/lib/workflow";
+import { normalizeRole, JUNIOR_TEXT_COOLDOWN_MINUTES } from "@/lib/constants";
 import {
   updateCustomer,
   addNote,
   quickRescheduleInstall,
+  markTextAttempt,
 } from "@/actions/customers";
 import CallLogDialog from "./CallLogDialog";
 import RecycleToJuniorButton from "./RecycleToJuniorButton";
@@ -42,12 +44,14 @@ interface Props {
   customer: Customer;
   profile: Profile;
   seniorTeamMembers?: Pick<Profile, "id" | "full_name">[];
+  lastAttemptAt?: string | null;
 }
 
 export default function CustomerDetailActions({
   customer,
   profile,
   seniorTeamMembers = [],
+  lastAttemptAt = null,
 }: Props) {
   const router = useRouter();
   const [note, setNote] = useState("");
@@ -57,6 +61,13 @@ export default function CustomerDetailActions({
     customer.follow_up_date || ""
   );
   const [quickLoading, setQuickLoading] = useState(false);
+  const [attemptLoading, setAttemptLoading] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   const manager = isManager(profile);
   const needsSeniorAssignment =
@@ -78,8 +89,35 @@ export default function CustomerDetailActions({
     profile.role
   );
 
+  const isJunior = normalizeRole(profile.role) === "junior_sales";
+  const showTextAttempt =
+    isJunior && customer.assigned_team === "Junior Sales Team";
+  const nextAllowedMs = lastAttemptAt
+    ? new Date(lastAttemptAt).getTime() + JUNIOR_TEXT_COOLDOWN_MINUTES * 60 * 1000
+    : 0;
+  const cooldownRemainingMin =
+    nextAllowedMs > now ? Math.ceil((nextAllowedMs - now) / 60000) : 0;
+  const textAttemptLocked = cooldownRemainingMin > 0;
+
   const showActionButtons =
     showLogCall || showSeniorActions || showRecycleToJunior;
+
+  const handleMarkTextAttempt = async () => {
+    setAttemptLoading(true);
+    try {
+      const result = await markTextAttempt(customer.id);
+      if (result && "error" in result && result.error) {
+        alert(result.error);
+        return;
+      }
+      if (result && "redirectTo" in result && result.redirectTo) {
+        router.push(result.redirectTo);
+      }
+      router.refresh();
+    } finally {
+      setAttemptLoading(false);
+    }
+  };
 
   const handleUpdate = async (field: string, value: string) => {
     try {
@@ -167,14 +205,41 @@ export default function CustomerDetailActions({
             </Alert>
           )}
 
+          {showTextAttempt && (
+            <>
+              <Button
+                variant="contained"
+                startIcon={<SmsIcon />}
+                onClick={handleMarkTextAttempt}
+                disabled={attemptLoading || textAttemptLocked}
+                fullWidth
+              >
+                {attemptLoading
+                  ? "Logging…"
+                  : textAttemptLocked
+                    ? `Wait ${cooldownRemainingMin} min to text again`
+                    : "Mark Text Attempt"}
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                {customer.assigned_user_id
+                  ? "Logs one outbound text attempt on your lead."
+                  : "Logs one outbound text attempt and claims this lead as yours."}
+              </Typography>
+            </>
+          )}
+
           {showLogCall && (
             <Button
-              variant="contained"
+              variant={showTextAttempt ? "outlined" : "contained"}
               startIcon={isJuniorText ? <SmsIcon /> : <PhoneIcon />}
               onClick={() => setCallDialogOpen(true)}
               fullWidth
             >
-              {isJuniorText ? "Log Text" : "Log Call"}
+              {isJuniorText
+                ? showTextAttempt
+                  ? "Log Text Result"
+                  : "Log Text"
+                : "Log Call"}
             </Button>
           )}
 

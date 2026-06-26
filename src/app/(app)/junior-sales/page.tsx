@@ -19,7 +19,12 @@ export default async function JuniorSalesPage({
 }: {
   searchParams: Promise<{ isp?: string }>;
 }) {
-  await requireRole(["admin", "manager", "va_manager", "junior_sales"]);
+  const profile = await requireRole([
+    "admin",
+    "manager",
+    "va_manager",
+    "junior_sales",
+  ]);
   const { isp } = await searchParams;
   const [customers, isps] = await Promise.all([
     getCustomers({ assigned_team: "Junior Sales Team" }),
@@ -57,6 +62,9 @@ export default async function JuniorSalesPage({
             ispColumns={selectedIsp?.columns ?? []}
             showTeamFilter={false}
             defaultTeam="Junior Sales Team"
+            showAssigneeFilter
+            showAssigneeColumn
+            currentUserId={profile.id}
             defaultIspId={selectedIspId}
             ispSelectorVariant="tabs"
             syncUrlOnIspChange

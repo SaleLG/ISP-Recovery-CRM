@@ -19,8 +19,6 @@ import {
   Paper,
   Chip,
   Typography,
-  Tabs,
-  Tab,
   InputAdornment,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -43,7 +41,6 @@ interface User {
 export default function UserManager({ users: initial }: { users: User[] }) {
   const router = useRouter();
   const [users, setUsers] = useState(initial);
-  const [tab, setTab] = useState(0);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [search, setSearch] = useState("");
@@ -59,9 +56,7 @@ export default function UserManager({ users: initial }: { users: User[] }) {
     setUsers(initial);
   }, [initial]);
 
-  const pendingUsers = users.filter((u) => !u.is_active);
-  const activeUsers = users.filter((u) => u.is_active);
-  const filteredActiveUsers = activeUsers.filter((u) => {
+  const displayedUsers = users.filter((u) => {
     const term = search.trim().toLowerCase();
     if (!term) return true;
     return (
@@ -70,7 +65,6 @@ export default function UserManager({ users: initial }: { users: User[] }) {
       u.role.toLowerCase().includes(term)
     );
   });
-  const displayedUsers = tab === 0 ? pendingUsers : filteredActiveUsers;
 
   const handleApprove = async (user: User) => {
     setLoading(true);
@@ -117,7 +111,6 @@ export default function UserManager({ users: initial }: { users: User[] }) {
           (a.full_name ?? "").localeCompare(b.full_name ?? "")
         )
       );
-      setTab(1);
       setDialogOpen(false);
       setForm({
         email: "",
@@ -135,24 +128,29 @@ export default function UserManager({ users: initial }: { users: User[] }) {
 
   return (
     <Box>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)}>
-          <Tab
-            label={
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                Pending Approval
-                {pendingUsers.length > 0 && (
-                  <Chip
-                    label={pendingUsers.length}
-                    size="small"
-                    color="warning"
-                  />
-                )}
-              </Box>
-            }
-          />
-          <Tab label={`Active Users (${activeUsers.length})`} />
-        </Tabs>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 2,
+          mb: 2,
+        }}
+      >
+        <TextField
+          size="small"
+          placeholder="Search by name, email, or role…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          sx={{ minWidth: 320 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" color="action" />
+              </InputAdornment>
+            ),
+          }}
+        />
         <Button
           variant="contained"
           startIcon={<AddIcon />}
@@ -162,41 +160,15 @@ export default function UserManager({ users: initial }: { users: User[] }) {
         </Button>
       </Box>
 
-      {tab === 0 && pendingUsers.length === 0 && (
+      {displayedUsers.length === 0 ? (
         <Paper sx={{ p: 3, textAlign: "center" }}>
           <Typography color="text.secondary">
-            No users waiting for approval.
+            {users.length === 0
+              ? "No users yet."
+              : `No users match "${search}".`}
           </Typography>
         </Paper>
-      )}
-
-      {tab === 1 && (
-        <TextField
-          size="small"
-          placeholder="Search by name, email, or role…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          sx={{ mb: 2, minWidth: 320 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" color="action" />
-              </InputAdornment>
-            ),
-          }}
-        />
-      )}
-
-      {tab === 1 && activeUsers.length > 0 && displayedUsers.length === 0 && (
-        <Paper sx={{ p: 3, textAlign: "center" }}>
-          <Typography color="text.secondary">
-            No active users match &quot;{search}&quot;.
-          </Typography>
-        </Paper>
-      )}
-
-      {((tab === 1 && displayedUsers.length > 0) ||
-        (tab === 0 && pendingUsers.length > 0)) && (
+      ) : (
         <Paper>
           <Table>
             <TableHead>

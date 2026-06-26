@@ -180,6 +180,7 @@ export default function CustomerDetailContent({
             customer={customer}
             profile={profile}
             seniorTeamMembers={seniorTeamMembers}
+            lastAttemptAt={callLogs[0]?.created_at ?? null}
           />
         </Grid>
       </Grid>

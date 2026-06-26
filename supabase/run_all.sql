@@ -347,6 +347,10 @@ CREATE POLICY "Junior sales see junior sales customers"
   USING (
     get_my_role() = 'junior_sales'
     AND assigned_team = 'Junior Sales Team'
+    AND (
+      assigned_user_id IS NULL
+      OR assigned_user_id = (SELECT id FROM profiles WHERE auth_user_id = auth.uid() LIMIT 1)
+    )
   );
 
 DROP POLICY IF EXISTS "Senior sales see senior sales customers" ON customers;
@@ -371,10 +375,18 @@ CREATE POLICY "Junior sales can update junior sales customers"
   USING (
     get_my_role() = 'junior_sales'
     AND assigned_team = 'Junior Sales Team'
+    AND (
+      assigned_user_id IS NULL
+      OR assigned_user_id = (SELECT id FROM profiles WHERE auth_user_id = auth.uid() LIMIT 1)
+    )
   )
   WITH CHECK (
     get_my_role() = 'junior_sales'
     AND assigned_team IN ('Junior Sales Team', 'Senior Sales Team', 'Recycle Hold')
+    AND (
+      assigned_user_id IS NULL
+      OR assigned_user_id = (SELECT id FROM profiles WHERE auth_user_id = auth.uid() LIMIT 1)
+    )
   );
 
 DROP POLICY IF EXISTS "Senior sales can update senior sales customers" ON customers;

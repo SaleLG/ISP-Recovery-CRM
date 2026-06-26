@@ -10,6 +10,13 @@ export const RECYCLE_HOLD_TEAM = "Recycle Hold" as const;
 export const RECYCLE_HOLD_DAYS = 30;
 export type Team = (typeof TEAMS)[number];
 
+/**
+ * Minimum minutes a junior must wait between outbound text attempts on the
+ * same lead. Discourages texting the same customer repeatedly in a short
+ * window. Enforced server-side in logCall and reflected in the UI.
+ */
+export const JUNIOR_TEXT_COOLDOWN_MINUTES = 60;
+
 export const ROLES = [
   "admin",
   "manager",

@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAuth, requireRole } from "@/lib/auth";
-import { normalizeRole } from "@/lib/constants";
+import { normalizeRole, JUNIOR_TEXT_COOLDOWN_MINUTES } from "@/lib/constants";
 import {
   getNextAttemptStage,
   getOutcomeFromCallResult,
@@ -221,6 +221,36 @@ export async function logCall(
     return { error: "Invalid interaction result for this team" };
   }
 
+  // Guardrail: juniors must wait between outbound text attempts on the same
+  // lead. Only applies to "No Text Reply" (an outbound text with no response);
+  // recording an actual reply result is never blocked.
+  if (
+    role === "junior_sales" &&
+    team === "Junior Sales Team" &&
+    callResult === "No Text Reply"
+  ) {
+    const { data: lastLog } = await supabase
+      .from("call_logs")
+      .select("created_at")
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (lastLog?.created_at) {
+      const elapsedMs = Date.now() - new Date(lastLog.created_at).getTime();
+      const cooldownMs = JUNIOR_TEXT_COOLDOWN_MINUTES * 60 * 1000;
+      if (elapsedMs < cooldownMs) {
+        const minutesLeft = Math.ceil((cooldownMs - elapsedMs) / 60000);
+        return {
+          error: `Please wait ${minutesLeft} more minute${
+            minutesLeft === 1 ? "" : "s"
+          } before sending another text to this lead.`,
+        };
+      }
+    }
+  }
+
   const interactionLabel = getInteractionLabel(team, role);
 
   const newAttemptNumber = customer.call_attempt_number + 1;
@@ -244,6 +274,17 @@ export async function logCall(
     call_attempt_number: newAttemptNumber,
     last_contact_date: new Date().toISOString().split("T")[0],
   };
+
+  // A junior takes ownership of a Junior Sales lead the first time they log an
+  // attempt on it. Escalation / recycle below will clear this if the lead
+  // leaves the junior pool.
+  if (
+    role === "junior_sales" &&
+    team === "Junior Sales Team" &&
+    !customer.assigned_user_id
+  ) {
+    updates.assigned_user_id = profile.id;
+  }
 
   const stageFromResult = getWorkflowStageFromCallResult(callResult);
   if (stageFromResult) {
@@ -355,6 +396,15 @@ export async function logCall(
     attemptNumber: newAttemptNumber,
     redirectTo: leftJuniorView ? "/junior-sales" : undefined,
   };
+}
+
+/**
+ * One-click outbound text attempt for juniors ("no reason necessary").
+ * Records a "No Text Reply" attempt, which claims ownership of the lead and is
+ * subject to the per-lead cooldown enforced in logCall.
+ */
+export async function markTextAttempt(customerId: string) {
+  return logCall(customerId, "No Text Reply", "");
 }
 
 export async function quickRescheduleInstall(
