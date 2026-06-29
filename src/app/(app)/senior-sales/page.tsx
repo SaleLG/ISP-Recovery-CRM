@@ -58,8 +58,8 @@ export default async function SeniorSalesPage({
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
         {role === "senior_sales"
-          ? "Your assigned callback and reschedule leads. Follow up to close or reschedule installs. Select an ISP tab to view that ISP's customers."
-          : "Escalated callback and reschedule leads from Junior Sales. Assign available senior reps to each lead. Select an ISP tab to view that ISP's customers."}
+          ? "Your assigned callback and reschedule leads. Follow up to close or reschedule installs. Select an ISP to view that ISP's customers."
+          : "Escalated callback and reschedule leads from Junior Sales. Assign available senior reps to each lead. Select an ISP to view that ISP's customers."}
       </Typography>
 
       {canManage && customers.some((c) => c.assigned_team === "Senior Sales Team" && !c.assigned_user_id) && (
@@ -88,7 +88,7 @@ export default async function SeniorSalesPage({
             teamMembers={seniorTeamMembers}
             currentUserId={profile.id}
             defaultIspId={selectedIspId}
-            ispSelectorVariant="tabs"
+            ispSelectorVariant="searchable"
             syncUrlOnIspChange
             hideAllIspTab
             requireIspSelection

@@ -16,35 +16,39 @@ import {
   getInteractionLabel,
 } from "@/lib/workflow";
 import type { CustomerFilters, LogCallOptions } from "@/lib/types";
+import { fetchAllRows } from "@/lib/pagination";
 import { revalidatePath } from "next/cache";
 
 export async function getCustomers(filters: CustomerFilters = {}) {
   await requireAuth();
   const supabase = await createClient();
 
-  let query = supabase
-    .from("customers")
-    .select("*, isps(id, name), profiles:assigned_user_id(id, full_name)")
-    .order("updated_at", { ascending: false });
+  // Paginated so result sets larger than PostgREST's 1000-row cap load fully.
+  return fetchAllRows((from, to) => {
+    let query = supabase
+      .from("customers")
+      .select("*, isps(id, name), profiles:assigned_user_id(id, full_name)")
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to);
 
-  if (filters.isp_id) query = query.eq("isp_id", filters.isp_id);
-  if (filters.assigned_team) query = query.eq("assigned_team", filters.assigned_team);
-  if (filters.assigned_user_id) query = query.eq("assigned_user_id", filters.assigned_user_id);
-  if (filters.workflow_stage) query = query.eq("workflow_stage", filters.workflow_stage);
-  if (filters.transfer_status) query = query.eq("transfer_status", filters.transfer_status);
-  if (filters.alert_type) query = query.eq("alert_type", filters.alert_type);
-  if (filters.alert_status) query = query.eq("alert_status", filters.alert_status);
+    if (filters.isp_id) query = query.eq("isp_id", filters.isp_id);
+    if (filters.assigned_team) query = query.eq("assigned_team", filters.assigned_team);
+    if (filters.assigned_user_id) query = query.eq("assigned_user_id", filters.assigned_user_id);
+    if (filters.workflow_stage) query = query.eq("workflow_stage", filters.workflow_stage);
+    if (filters.transfer_status) query = query.eq("transfer_status", filters.transfer_status);
+    if (filters.alert_type) query = query.eq("alert_type", filters.alert_type);
+    if (filters.alert_status) query = query.eq("alert_status", filters.alert_status);
 
-  if (filters.search) {
-    const term = `%${filters.search}%`;
-    query = query.or(
-      `full_name.ilike.${term},phone.ilike.${term},account_number.ilike.${term},address.ilike.${term}`
-    );
-  }
+    if (filters.search) {
+      const term = `%${filters.search}%`;
+      query = query.or(
+        `full_name.ilike.${term},phone.ilike.${term},account_number.ilike.${term},address.ilike.${term}`
+      );
+    }
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return data;
+    return query;
+  });
 }
 
 export async function getCustomer(id: string) {
@@ -99,30 +103,45 @@ export async function updateCustomer(
 
   if (payload.assigned_user_id !== undefined) {
     if (role !== "admin" && role !== "manager" && role !== "va_manager") {
-      throw new Error("Only managers can assign senior sales reps");
+      throw new Error("Only managers can assign leads to reps");
     }
     if (existing.assigned_team === "Recycle Hold") {
       throw new Error("Recycle Hold leads are not assigned to a sales rep");
     }
-    if (existing.assigned_team !== "Senior Sales Team") {
-      throw new Error("Senior reps can only be assigned to Senior Sales Team leads");
-    }
     const assigneeId = payload.assigned_user_id as string | null;
-    if (assigneeId) {
-      const { data: assignee } = await supabase
-        .from("profiles")
-        .select("id, role, is_active")
-        .eq("id", assigneeId)
-        .single();
-      if (!assignee || normalizeRole(assignee.role) !== "senior_sales") {
-        throw new Error("Selected user is not an active senior sales rep");
+    if (existing.assigned_team === "Senior Sales Team") {
+      if (assigneeId) {
+        const { data: assignee } = await supabase
+          .from("profiles")
+          .select("id, role, is_active")
+          .eq("id", assigneeId)
+          .single();
+        if (!assignee || normalizeRole(assignee.role) !== "senior_sales") {
+          throw new Error("Selected user is not an active senior sales rep");
+        }
+        if (!assignee.is_active) {
+          throw new Error("Selected senior sales rep is not active");
+        }
+        if (existing.transfer_status === "Senior Review") {
+          payload.transfer_status = "None";
+        }
       }
-      if (!assignee.is_active) {
-        throw new Error("Selected senior sales rep is not active");
+    } else if (existing.assigned_team === "Junior Sales Team") {
+      if (assigneeId) {
+        const { data: assignee } = await supabase
+          .from("profiles")
+          .select("id, role, is_active")
+          .eq("id", assigneeId)
+          .single();
+        if (!assignee || normalizeRole(assignee.role) !== "junior_sales") {
+          throw new Error("Selected user is not an active junior sales rep");
+        }
+        if (!assignee.is_active) {
+          throw new Error("Selected junior sales rep is not active");
+        }
       }
-      if (existing.transfer_status === "Senior Review") {
-        payload.transfer_status = "None";
-      }
+    } else {
+      throw new Error("Leads can only be assigned on Junior or Senior Sales Team");
     }
   }
 
@@ -625,4 +644,133 @@ export async function deleteCustomers(ids: string[]) {
   revalidatePath("/alerts");
 
   return { success: true, deleted: ids.length };
+}
+
+const ASSIGN_CHUNK = 200;
+
+/**
+ * Delegates a set of Junior Sales Team leads to a single junior rep (or clears
+ * ownership when `userId` is null). Only rows currently on the Junior Sales
+ * Team are touched, so senior/recycle leads are never reassigned by mistake.
+ */
+export async function assignLeadsToUser(
+  customerIds: string[],
+  userId: string | null
+) {
+  await requireRole(["admin", "manager", "va_manager"]);
+  if (customerIds.length === 0) return { success: true, assigned: 0 };
+
+  const admin = createAdminClient();
+
+  if (userId) {
+    const { data: assignee } = await admin
+      .from("profiles")
+      .select("id, role, is_active")
+      .eq("id", userId)
+      .single();
+    if (!assignee || normalizeRole(assignee.role) !== "junior_sales") {
+      throw new Error("Leads can only be delegated to a junior sales rep.");
+    }
+    if (!assignee.is_active) {
+      throw new Error("That junior sales rep is not active.");
+    }
+  }
+
+  let assigned = 0;
+  for (let i = 0; i < customerIds.length; i += ASSIGN_CHUNK) {
+    const chunk = customerIds.slice(i, i + ASSIGN_CHUNK);
+    const { data, error } = await admin
+      .from("customers")
+      .update({ assigned_user_id: userId })
+      .in("id", chunk)
+      .eq("assigned_team", "Junior Sales Team")
+      .select("id");
+    if (error) throw new Error(error.message);
+    assigned += data?.length ?? 0;
+  }
+
+  revalidatePath("/customers");
+  revalidatePath("/junior-sales");
+  revalidatePath("/dashboard");
+
+  return { success: true, assigned };
+}
+
+/**
+ * Auto-distributes Junior Sales Team leads across several junior reps. By
+ * default only unassigned leads are handed out. `perUser` caps how many each
+ * rep receives (e.g. 500); when omitted leads are split as evenly as possible.
+ */
+export async function distributeLeads(params: {
+  ispId?: string;
+  userIds: string[];
+  perUser?: number;
+  onlyUnassigned?: boolean;
+}) {
+  await requireRole(["admin", "manager", "va_manager"]);
+  const { ispId, userIds, perUser, onlyUnassigned = true } = params;
+
+  if (userIds.length === 0) {
+    throw new Error("Select at least one junior sales rep.");
+  }
+
+  const admin = createAdminClient();
+
+  const { data: candidates } = await admin
+    .from("profiles")
+    .select("id, role, is_active")
+    .in("id", userIds);
+
+  const validIds = (candidates ?? [])
+    .filter((p) => normalizeRole(p.role) === "junior_sales" && p.is_active)
+    .map((p) => p.id);
+
+  if (validIds.length === 0) {
+    throw new Error("No active junior sales reps were selected.");
+  }
+
+  const leadRows = await fetchAllRows<{ id: string }>((from, to) => {
+    let query = admin
+      .from("customers")
+      .select("id")
+      .eq("assigned_team", "Junior Sales Team")
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (ispId) query = query.eq("isp_id", ispId);
+    if (onlyUnassigned) query = query.is("assigned_user_id", null);
+    return query;
+  });
+
+  const leadIds = leadRows.map((r) => r.id);
+  if (leadIds.length === 0) {
+    return { success: true, assigned: 0, leftover: 0 };
+  }
+
+  const block =
+    perUser && perUser > 0
+      ? perUser
+      : Math.ceil(leadIds.length / validIds.length);
+
+  let assigned = 0;
+  let cursor = 0;
+  for (const uid of validIds) {
+    if (cursor >= leadIds.length) break;
+    const slice = leadIds.slice(cursor, cursor + block);
+    cursor += slice.length;
+    for (let i = 0; i < slice.length; i += ASSIGN_CHUNK) {
+      const chunk = slice.slice(i, i + ASSIGN_CHUNK);
+      const { error } = await admin
+        .from("customers")
+        .update({ assigned_user_id: uid })
+        .in("id", chunk);
+      if (error) throw new Error(error.message);
+      assigned += chunk.length;
+    }
+  }
+
+  revalidatePath("/customers");
+  revalidatePath("/junior-sales");
+  revalidatePath("/dashboard");
+
+  return { success: true, assigned, leftover: leadIds.length - cursor };
 }

@@ -18,6 +18,7 @@ import {
   shouldReinitializeOnReimport,
 } from "@/lib/workflow";
 import type { ISPColumn } from "@/lib/types";
+import { fetchAllRows } from "@/lib/pagination";
 import { revalidatePath } from "next/cache";
 
 const INSERT_BATCH = 100;
@@ -145,14 +146,25 @@ async function runConfirmImport(formData: FormData) {
 
   if (importError) throw new Error(importError.message);
 
-  const { data: existingCustomers, error: existingError } = await admin
-    .from("customers")
-    .select(
-      "id, custom_fields, workflow_stage, outcome, assigned_team, transfer_status"
-    )
-    .eq("isp_id", ispId);
-
-  if (existingError) throw new Error(existingError.message);
+  // Paginated so dedup compares against ALL existing rows for this ISP, not
+  // just the first 1000 PostgREST would otherwise return.
+  const existingCustomers = await fetchAllRows<{
+    id: string;
+    custom_fields: Record<string, string | null> | null;
+    workflow_stage: string | null;
+    outcome: string | null;
+    assigned_team: string | null;
+    transfer_status: string | null;
+  }>((from, to) =>
+    admin
+      .from("customers")
+      .select(
+        "id, custom_fields, workflow_stage, outcome, assigned_team, transfer_status"
+      )
+      .eq("isp_id", ispId)
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
 
   const existingById = new Map(
     (existingCustomers ?? []).map((customer) => [customer.id, customer])

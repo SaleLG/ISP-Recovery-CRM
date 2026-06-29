@@ -25,9 +25,13 @@ import {
   Tab,
   Alert,
   Autocomplete,
+  Checkbox,
+  FormControlLabel,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import GroupAddIcon from "@mui/icons-material/GroupAdd";
+import PersonAddAltIcon from "@mui/icons-material/PersonAddAlt";
 import ClientNavLink from "@/components/common/ClientNavLink";
 import {
   WORKFLOW_STAGES,
@@ -38,7 +42,12 @@ import {
   normalizeTeamLabel,
 } from "@/lib/constants";
 import { isRecycleReady } from "@/lib/workflow";
-import { updateCustomer, deleteCustomers } from "@/actions/customers";
+import {
+  updateCustomer,
+  deleteCustomers,
+  assignLeadsToUser,
+  distributeLeads,
+} from "@/actions/customers";
 import {
   getCustomerDisplayName,
   getCustomerSearchText,
@@ -156,6 +165,8 @@ interface Props {
   showAssigneeColumn?: boolean;
   allowAssign?: boolean;
   teamMembers?: { id: string; full_name: string | null }[];
+  allowBulkAssign?: boolean;
+  juniorMembers?: { id: string; full_name: string | null }[];
   currentUserId?: string;
   defaultIspId?: string;
   ispSelectorVariant?: "dropdown" | "tabs" | "searchable";
@@ -176,6 +187,8 @@ export default function CustomerTable({
   showAssigneeColumn = false,
   allowAssign = false,
   teamMembers = [],
+  allowBulkAssign = false,
+  juniorMembers = [],
   currentUserId,
   defaultIspId = "",
   ispColumns = [],
@@ -204,6 +217,18 @@ export default function CustomerTable({
   });
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignTarget, setAssignTarget] = useState<
+    { id: string; full_name: string | null } | null
+  >(null);
+  const [assigning, setAssigning] = useState(false);
+  const [distributeOpen, setDistributeOpen] = useState(false);
+  const [distributeTargets, setDistributeTargets] = useState<
+    { id: string; full_name: string | null }[]
+  >([]);
+  const [distributePerUser, setDistributePerUser] = useState("500");
+  const [distributeOnlyUnassigned, setDistributeOnlyUnassigned] = useState(true);
+  const [distributing, setDistributing] = useState(false);
 
   const fallbackIspId = defaultIspId || isps[0]?.id || "";
 
@@ -292,7 +317,8 @@ export default function CustomerTable({
   }, [filtered, paginationModel]);
 
   const handleRowSelectionModelChange = (newModel: GridRowSelectionModel) => {
-    if (!allowBulkDelete) {
+    const bulkSelect = allowBulkDelete || allowBulkAssign;
+    if (!bulkSelect) {
       setRowSelectionModel(newModel);
       return;
     }
@@ -334,6 +360,56 @@ export default function CustomerTable({
       router.refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to update customer");
+    }
+  };
+
+  const handleAssignSelected = async () => {
+    if (!assignTarget) return;
+    setAssigning(true);
+    try {
+      const result = await assignLeadsToUser(
+        rowSelectionModel as string[],
+        assignTarget.id
+      );
+      setAssignOpen(false);
+      setAssignTarget(null);
+      setRowSelectionModel([]);
+      router.refresh();
+      alert(
+        `Delegated ${result.assigned} junior lead${
+          result.assigned === 1 ? "" : "s"
+        }.`
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to assign leads");
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const handleDistribute = async () => {
+    if (distributeTargets.length === 0) return;
+    setDistributing(true);
+    try {
+      const parsed = parseInt(distributePerUser, 10);
+      const result = await distributeLeads({
+        ispId: ispFilter || undefined,
+        userIds: distributeTargets.map((u) => u.id),
+        perUser: Number.isFinite(parsed) && parsed > 0 ? parsed : undefined,
+        onlyUnassigned: distributeOnlyUnassigned,
+      });
+      setDistributeOpen(false);
+      setDistributeTargets([]);
+      router.refresh();
+      alert(
+        `Distributed ${result.assigned} lead${
+          result.assigned === 1 ? "" : "s"
+        }${result.leftover ? `, ${result.leftover} left over` : ""}.`
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to distribute leads");
+    } finally {
+      setDistributing(false);
     }
   };
 
@@ -512,6 +588,45 @@ export default function CustomerTable({
                   </Box>
                 );
               }
+              if (
+                allowBulkAssign &&
+                juniorMembers.length > 0 &&
+                params.row.assigned_team === "Junior Sales Team"
+              ) {
+                return (
+                  <Box sx={cellSelectWrapperSx}>
+                    <TextField
+                      select
+                      size="small"
+                      fullWidth
+                      value={params.value || ""}
+                      onChange={(e) =>
+                        handleInlineUpdate(
+                          params.row.id,
+                          "assigned_user_id",
+                          e.target.value
+                        )
+                      }
+                      sx={cellSelectFieldSx}
+                      SelectProps={{
+                        displayEmpty: true,
+                        renderValue: (selected) =>
+                          selected
+                            ? juniorMembers.find((u) => u.id === selected)
+                                ?.full_name || "Unknown"
+                            : "Available",
+                      }}
+                    >
+                      <MenuItem value="">Available</MenuItem>
+                      {juniorMembers.map((u) => (
+                        <MenuItem key={u.id} value={u.id}>
+                          {u.full_name || "Unknown"}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </Box>
+                );
+              }
               return label ?? "—";
             },
           } as GridColDef,
@@ -656,7 +771,27 @@ export default function CustomerTable({
       value: u.id,
       label: u.full_name || "Unknown",
     })),
+    ...(allowBulkAssign
+      ? juniorMembers
+          .filter((j) => !teamMembers.some((s) => s.id === j.id))
+          .map((u) => ({
+            value: u.id,
+            label: u.full_name || "Unknown",
+          }))
+      : []),
   ];
+
+  const unassignedJuniorCount = useMemo(() => {
+    if (!allowBulkAssign) return 0;
+    return customers.filter(
+      (c) =>
+        c.assigned_team === "Junior Sales Team" &&
+        !c.assigned_user_id &&
+        (!ispFilter || c.isp_id?.toLowerCase() === ispFilter.toLowerCase())
+    ).length;
+  }, [customers, allowBulkAssign, ispFilter]);
+
+  const bulkSelectEnabled = allowBulkDelete || allowBulkAssign;
 
   const primaryColumnKey = hasIspColumns
     ? activeIspColumns.find((c) => c.is_primary)?.column_key ??
@@ -664,7 +799,7 @@ export default function CustomerTable({
     : "full_name";
   const stickyField =
     hasIspColumns && primaryColumnKey ? `cf_${primaryColumnKey}` : "full_name";
-  const nameStickyLeft = allowBulkDelete ? 50 : 0;
+  const nameStickyLeft = bulkSelectEnabled ? 50 : 0;
 
   const ispTabIndex = Math.max(
     0,
@@ -862,6 +997,26 @@ export default function CustomerTable({
             Delete selected ({rowSelectionModel.length})
           </Button>
         )}
+        {allowBulkAssign && rowSelectionModel.length > 0 && (
+          <Button
+            variant="outlined"
+            startIcon={<PersonAddAltIcon />}
+            onClick={() => setAssignOpen(true)}
+            sx={{ alignSelf: "center" }}
+          >
+            Delegate selected ({rowSelectionModel.length})
+          </Button>
+        )}
+        {allowBulkAssign && juniorMembers.length > 0 && (
+          <Button
+            variant="outlined"
+            startIcon={<GroupAddIcon />}
+            onClick={() => setDistributeOpen(true)}
+            sx={{ alignSelf: "center" }}
+          >
+            Auto-distribute leads
+          </Button>
+        )}
       </Stack>
 
       <Box sx={{ width: "100%", height: 560 }}>
@@ -872,7 +1027,7 @@ export default function CustomerTable({
           pageSizeOptions={[25, 50, 100]}
           paginationModel={paginationModel}
           onPaginationModelChange={setPaginationModel}
-          checkboxSelection={allowBulkDelete}
+          checkboxSelection={bulkSelectEnabled}
           rowSelectionModel={rowSelectionModel}
           onRowSelectionModelChange={handleRowSelectionModelChange}
           disableRowSelectionOnClick
@@ -914,7 +1069,7 @@ export default function CustomerTable({
             "& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within": {
               outline: "none",
             },
-            ...(allowBulkDelete && {
+            ...(bulkSelectEnabled && {
               '& .MuiDataGrid-columnHeader[data-field="__check__"]': {
                 position: "sticky",
                 left: 0,
@@ -971,6 +1126,127 @@ export default function CustomerTable({
             disabled={deleting}
           >
             {deleting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={assignOpen}
+        onClose={() => !assigning && setAssignOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delegate leads to junior rep</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Assign {rowSelectionModel.length} selected lead
+            {rowSelectionModel.length === 1 ? "" : "s"} to a junior sales rep.
+            Only leads on the Junior Sales Team will be updated.
+          </Typography>
+          <Autocomplete
+            options={juniorMembers}
+            value={assignTarget}
+            onChange={(_, value) => setAssignTarget(value)}
+            getOptionLabel={(option) => option.full_name || "Unknown"}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            renderInput={(params) => (
+              <TextField {...params} label="Junior rep" size="small" />
+            )}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setAssignOpen(false);
+              setAssignTarget(null);
+            }}
+            disabled={assigning}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAssignSelected}
+            disabled={assigning || !assignTarget}
+          >
+            {assigning ? "Assigning..." : "Delegate"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={distributeOpen}
+        onClose={() => !distributing && setDistributeOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Auto-distribute junior leads</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Split unassigned Junior Sales Team leads
+            {selectedIsp ? ` for ${selectedIsp.name}` : ""} across selected reps.
+            {unassignedJuniorCount > 0
+              ? ` ${unassignedJuniorCount} unassigned lead${
+                  unassignedJuniorCount === 1 ? "" : "s"
+                } available.`
+              : " No unassigned leads match the current ISP."}
+          </Typography>
+          <Autocomplete
+            multiple
+            options={juniorMembers}
+            value={distributeTargets}
+            onChange={(_, value) => setDistributeTargets(value)}
+            getOptionLabel={(option) => option.full_name || "Unknown"}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            sx={{ mb: 2 }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Junior reps"
+                size="small"
+                placeholder="Select reps..."
+              />
+            )}
+          />
+          <TextField
+            label="Leads per rep"
+            size="small"
+            fullWidth
+            value={distributePerUser}
+            onChange={(e) => setDistributePerUser(e.target.value)}
+            helperText="Leave blank to split evenly across selected reps"
+            sx={{ mb: 1 }}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={distributeOnlyUnassigned}
+                onChange={(e) => setDistributeOnlyUnassigned(e.target.checked)}
+              />
+            }
+            label="Only unassigned leads"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setDistributeOpen(false);
+              setDistributeTargets([]);
+            }}
+            disabled={distributing}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleDistribute}
+            disabled={
+              distributing ||
+              distributeTargets.length === 0 ||
+              unassignedJuniorCount === 0
+            }
+          >
+            {distributing ? "Distributing..." : "Distribute"}
           </Button>
         </DialogActions>
       </Dialog>

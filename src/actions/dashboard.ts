@@ -8,6 +8,7 @@ import {
   normalizeTeamLabel,
 } from "@/lib/constants";
 import type { DashboardScope, DashboardStats, Profile } from "@/lib/types";
+import { fetchAllRows } from "@/lib/pagination";
 
 type CustomerRow = {
   id: string;
@@ -62,10 +63,26 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   const supabase = await createClient();
 
-  const { data: customers } = await supabase.from("customers").select("*");
-  const { data: callLogs } = await supabase
-    .from("call_logs")
-    .select("team, customer_id, call_result");
+  // Paginated so dashboard stats count the full data set, not just the first
+  // 1000 rows PostgREST returns by default.
+  const customers = await fetchAllRows<CustomerRow>((fromIdx, toIdx) =>
+    supabase
+      .from("customers")
+      .select("*")
+      .order("id", { ascending: true })
+      .range(fromIdx, toIdx)
+  );
+  const callLogs = await fetchAllRows<{
+    team: string | null;
+    customer_id: string | null;
+    call_result: string | null;
+  }>((fromIdx, toIdx) =>
+    supabase
+      .from("call_logs")
+      .select("team, customer_id, call_result")
+      .order("id", { ascending: true })
+      .range(fromIdx, toIdx)
+  );
   const { data: isps } = await supabase.from("isps").select("id, name");
 
   const allCustomers = (customers || []) as CustomerRow[];
@@ -98,7 +115,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   let callsLogged = 0;
 
   for (const log of callLogs || []) {
-    if (!visibleCustomerIds.has(log.customer_id)) continue;
+    if (!log.customer_id || !visibleCustomerIds.has(log.customer_id)) continue;
     callsLogged += 1;
     countByLabel(callTeamCounts, log.team, normalizeTeamLabel);
     if (log.call_result) {

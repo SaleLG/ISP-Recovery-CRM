@@ -46,7 +46,7 @@ export default async function JuniorSalesPage({
         call, needs a phone reschedule, has a complaint, or needs price
         approval, the lead escalates to Senior Sales for a manager to assign a
         rep. After 3 text attempts with no reply, leads move to the manager&apos;s
-        No Reply — Recycle basket for 30 days. Select an ISP tab to view
+        No Reply — Recycle basket for 30 days. Select an ISP to view
         customers.
       </Typography>
 
@@ -66,7 +66,7 @@ export default async function JuniorSalesPage({
             showAssigneeColumn
             currentUserId={profile.id}
             defaultIspId={selectedIspId}
-            ispSelectorVariant="tabs"
+            ispSelectorVariant="searchable"
             syncUrlOnIspChange
             hideAllIspTab
             requireIspSelection

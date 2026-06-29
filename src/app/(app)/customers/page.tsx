@@ -23,11 +23,13 @@ export default async function CustomersPage({
 }) {
   const profile = await requireRole(["admin", "manager"]);
   const { isp } = await searchParams;
-  const [customers, isps, seniorTeamMembers] = await Promise.all([
-    getCustomers(),
-    getISPsWithCounts(),
-    getTeamMembers("Senior Sales Team"),
-  ]);
+  const [customers, isps, seniorTeamMembers, juniorTeamMembers] =
+    await Promise.all([
+      getCustomers(),
+      getISPsWithCounts(),
+      getTeamMembers("Senior Sales Team"),
+      getTeamMembers("Junior Sales Team"),
+    ]);
 
   const selectedIspId =
     isp && isps.some((item) => item.id === isp) ? isp : isps[0]?.id ?? "";
@@ -74,6 +76,8 @@ export default async function CustomersPage({
             showAssigneeFilter
             allowAssign
             teamMembers={seniorTeamMembers}
+            allowBulkAssign
+            juniorMembers={juniorTeamMembers}
             currentUserId={profile.id}
             defaultIspId={selectedIspId}
             ispSelectorVariant="searchable"
