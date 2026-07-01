@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS customers (
   install_complete TEXT,
   sales_rep_id TEXT,
   isp_notes TEXT,
-  assigned_team TEXT DEFAULT 'Junior Sales Team' CHECK (assigned_team IN ('Junior Sales Team', 'Senior Sales Team', 'Recycle Hold')),
+  assigned_team TEXT NOT NULL DEFAULT 'Junior Sales Team' CHECK (assigned_team IN ('Junior Sales Team', 'Senior Sales Team', 'Recycle Hold')),
   assigned_user_id UUID REFERENCES profiles(id),
   call_attempt_number INT DEFAULT 0,
   workflow_stage TEXT DEFAULT 'New' CHECK (workflow_stage IN (
@@ -546,3 +546,4 @@ UPDATE activities SET new_value = 'Recycle Hold' WHERE new_value = 'Recovery Tea
 UPDATE profiles SET team = 'Junior Sales Team' WHERE role = 'junior_sales' AND team IS DISTINCT FROM 'Junior Sales Team';
 UPDATE profiles SET team = 'Senior Sales Team' WHERE role = 'senior_sales' AND team IS DISTINCT FROM 'Senior Sales Team';
 UPDATE profiles SET team = NULL WHERE role IN ('admin', 'manager') AND team IS NOT NULL;
+UPDATE customers SET assigned_team = 'Junior Sales Team' WHERE assigned_team IS NULL;

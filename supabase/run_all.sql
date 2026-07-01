@@ -640,7 +640,9 @@ ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_team_check;
 ALTER TABLE profiles ADD CONSTRAINT profiles_team_check
   CHECK (team IN ('Junior Sales Team', 'Senior Sales Team'));
 
+UPDATE customers SET assigned_team = 'Junior Sales Team' WHERE assigned_team IS NULL;
 ALTER TABLE customers ALTER COLUMN assigned_team SET DEFAULT 'Junior Sales Team';
+ALTER TABLE customers ALTER COLUMN assigned_team SET NOT NULL;
 ALTER TABLE imports ALTER COLUMN default_assigned_team SET DEFAULT 'Junior Sales Team';
 
 DROP FUNCTION IF EXISTS move_customer_to_recovery(UUID);
