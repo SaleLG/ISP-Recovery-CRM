@@ -68,9 +68,6 @@ const LEGACY_FIELD_KEYS = new Set([
   "address",
   "product",
   "term",
-  "order_date",
-  "install_date",
-  "install_complete",
   "sales_rep_id",
   "isp_notes",
 ]);

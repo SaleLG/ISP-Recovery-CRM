@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS isp_columns (
   isp_id UUID NOT NULL REFERENCES isps(id) ON DELETE CASCADE,
   column_key TEXT NOT NULL,
   label TEXT NOT NULL,
-  field_type TEXT NOT NULL DEFAULT 'text' CHECK (field_type IN ('text', 'date', 'phone', 'number')),
+  field_type TEXT NOT NULL DEFAULT 'text' CHECK (field_type = 'text'),
   sort_order INT NOT NULL DEFAULT 0,
   is_primary BOOLEAN NOT NULL DEFAULT false,
   used_for_matching BOOLEAN NOT NULL DEFAULT false,
@@ -64,14 +64,14 @@ FROM customers c
 CROSS JOIN (
   VALUES
     ('full_name', 'Full Name', 'text', 1, true, false),
-    ('phone', 'Phone', 'phone', 2, false, true),
+    ('phone', 'Phone', 'text', 2, false, true),
     ('account_number', 'Account Number', 'text', 3, false, true),
     ('isp_status', 'ISP Status', 'text', 4, false, false),
     ('address', 'Address', 'text', 5, false, true),
     ('product', 'Product', 'text', 6, false, false),
     ('term', 'Term', 'text', 7, false, false),
-    ('order_date', 'Order Date', 'date', 8, false, false),
-    ('install_date', 'Install Date', 'date', 9, false, false),
+    ('order_date', 'Order Date', 'text', 8, false, false),
+    ('install_date', 'Install Date', 'text', 9, false, false),
     ('install_complete', 'Install Complete', 'text', 10, false, false),
     ('sales_rep_id', 'Sales Rep ID', 'text', 11, false, false),
     ('isp_notes', 'ISP Notes', 'text', 12, false, false)

@@ -13,7 +13,8 @@ A web-based CRM for ISP customer recovery workflows. Manages ISP customer upload
 | Role | Access |
 |------|--------|
 | `admin` | Full access |
-| `manager` | All pages except Users; assigns Senior reps; manages recycle basket |
+| `manager` | All pages except Users; assigns Senior reps; manages recycle basket; bulk-assigns junior leads |
+| `va_manager` | Dashboard, Junior Sales, Senior Sales, Alerts; assigns senior reps |
 | `junior_sales` | Dashboard + Junior Sales Team |
 | `senior_sales` | Dashboard + Senior Sales Team (assigned leads) |
 
@@ -34,7 +35,16 @@ That file combines the full schema plus migrations `009`–`014` (Junior/Senior 
 
 ## Docs
 
+Single user guide (Word):
+
 ```bash
 npm run docs:user-guide
-npm run docs:scenario
 ```
+
+Or remove old copies and regenerate:
+
+```bash
+npm run docs:finalize
+```
+
+Output: `docs/ISP_CRM_User_Guide.docx`

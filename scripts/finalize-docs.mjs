@@ -14,37 +14,19 @@ const remove = (name) => {
   }
 };
 
-const rename = (from, to) => {
-  const src = path.join(docsDir, from);
-  const dest = path.join(docsDir, to);
-  if (!fs.existsSync(src)) return;
-  if (fs.existsSync(dest)) fs.unlinkSync(dest);
-  fs.renameSync(src, dest);
-  console.log(`Renamed: ${from} → ${to}`);
-};
-
-const removeDir = (name) => {
-  const p = path.join(docsDir, name);
-  if (fs.existsSync(p)) {
-    fs.rmSync(p, { recursive: true, force: true });
-    console.log(`Removed folder: ${name}`);
-  }
-};
-
 try {
   remove("ISP_CRM_User_Guide.docx");
+  remove("ISP_CRM_User_Guide_updated.docx");
   remove("ISP_CRM_Example_Scenario.docx");
   remove("ISP_CRM_Workflow_Reference.docx");
   remove("ISP_CRM_Client_Step_by_Step_Guide.docx");
-  remove("ISP_CRM_User_Guide_updated.docx");
   remove("ISP_CRM_Example_Scenario_updated.docx");
   remove("ISP_CRM_Example_Scenario_NEW.docx");
-  removeDir("new");
 
-  execSync("npm run docs:user-guide", { stdio: "inherit", cwd: path.join(__dirname, "..") });
-  execSync("npm run docs:scenario", { stdio: "inherit", cwd: path.join(__dirname, "..") });
-  execSync("npm run docs:workflow", { stdio: "inherit", cwd: path.join(__dirname, "..") });
-  execSync("npm run docs:beginner-guide", { stdio: "inherit", cwd: path.join(__dirname, "..") });
+  execSync("npm run docs:user-guide", {
+    stdio: "inherit",
+    cwd: path.join(__dirname, ".."),
+  });
 
   console.log("\nDocs folder is ready:");
   for (const name of fs.readdirSync(docsDir)) {
@@ -55,7 +37,7 @@ try {
 } catch (err) {
   if (err?.code === "EBUSY" || err?.code === "EPERM") {
     console.error(
-      "\nSome document files are open in Word or the editor. Close them and run:\n  npm run docs:finalize"
+      "\nDocument file is open in Word or the editor. Close it and run:\n  npm run docs:finalize"
     );
     process.exit(1);
   }

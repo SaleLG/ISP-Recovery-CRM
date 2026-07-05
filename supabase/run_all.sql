@@ -48,8 +48,8 @@ CREATE TABLE IF NOT EXISTS customers (
   address TEXT,
   product TEXT,
   term TEXT,
-  order_date DATE,
-  install_date DATE,
+  order_date TEXT,
+  install_date TEXT,
   install_complete TEXT,
   sales_rep_id TEXT,
   isp_notes TEXT,
@@ -515,7 +515,7 @@ CREATE TABLE IF NOT EXISTS isp_columns (
   isp_id UUID NOT NULL REFERENCES isps(id) ON DELETE CASCADE,
   column_key TEXT NOT NULL,
   label TEXT NOT NULL,
-  field_type TEXT NOT NULL DEFAULT 'text' CHECK (field_type IN ('text', 'date', 'phone', 'number')),
+  field_type TEXT NOT NULL DEFAULT 'text' CHECK (field_type = 'text'),
   sort_order INT NOT NULL DEFAULT 0,
   is_primary BOOLEAN NOT NULL DEFAULT false,
   used_for_matching BOOLEAN NOT NULL DEFAULT false,
@@ -592,14 +592,14 @@ FROM customers c
 CROSS JOIN (
   VALUES
     ('full_name', 'Full Name', 'text', 1, true, false),
-    ('phone', 'Phone', 'phone', 2, false, true),
+    ('phone', 'Phone', 'text', 2, false, true),
     ('account_number', 'Account Number', 'text', 3, false, true),
     ('isp_status', 'ISP Status', 'text', 4, false, false),
     ('address', 'Address', 'text', 5, false, true),
     ('product', 'Product', 'text', 6, false, false),
     ('term', 'Term', 'text', 7, false, false),
-    ('order_date', 'Order Date', 'date', 8, false, false),
-    ('install_date', 'Install Date', 'date', 9, false, false),
+    ('order_date', 'Order Date', 'text', 8, false, false),
+    ('install_date', 'Install Date', 'text', 9, false, false),
     ('install_complete', 'Install Complete', 'text', 10, false, false),
     ('sales_rep_id', 'Sales Rep ID', 'text', 11, false, false),
     ('isp_notes', 'ISP Notes', 'text', 12, false, false)
@@ -699,4 +699,39 @@ ALTER TABLE call_logs ADD CONSTRAINT call_logs_call_result_check
     'Callback Requested', 'Rescheduled', 'New Account Created',
     'Not Interested', 'Wrong Number', 'Do Not Call', 'ISP Complaint', 'Price Approval Needed'
   ));
+
+-- ============================================================
+-- MIGRATION 020 — Import date fields as plain text
+-- ============================================================
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'customers'
+      AND column_name = 'order_date'
+  ) THEN
+    ALTER TABLE customers
+      ALTER COLUMN order_date TYPE TEXT USING order_date::text;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'customers'
+      AND column_name = 'install_date'
+  ) THEN
+    ALTER TABLE customers
+      ALTER COLUMN install_date TYPE TEXT USING install_date::text;
+  END IF;
+END $$;
+
+UPDATE isp_columns
+SET field_type = 'text'
+WHERE field_type IS DISTINCT FROM 'text';
+
+ALTER TABLE isp_columns DROP CONSTRAINT IF EXISTS isp_columns_field_type_check;
+ALTER TABLE isp_columns ADD CONSTRAINT isp_columns_field_type_check
+  CHECK (field_type = 'text');
 

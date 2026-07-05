@@ -188,15 +188,6 @@ export function autoMapToISPColumns(
   return mapping;
 }
 
-function formatDateValue(value: string | null): string | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (!isNaN(parsed.getTime())) {
-    return parsed.toISOString().split("T")[0];
-  }
-  return value;
-}
-
 export function mapRow(
   raw: Record<string, string | null>,
   columnMapping: Record<string, string>
@@ -204,16 +195,7 @@ export function mapRow(
   const mapped: Record<string, string | null> = {};
 
   for (const [sourceCol, crmField] of Object.entries(columnMapping)) {
-    const value = raw[sourceCol];
-    if (!value) {
-      mapped[crmField] = null;
-      continue;
-    }
-    if (crmField === "order_date" || crmField === "install_date") {
-      mapped[crmField] = formatDateValue(value);
-    } else {
-      mapped[crmField] = value;
-    }
+    mapped[crmField] = raw[sourceCol] ?? null;
   }
 
   if (mapped.phone) {

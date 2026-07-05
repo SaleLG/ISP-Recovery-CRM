@@ -284,27 +284,77 @@ async function runConfirmImport(formData: FormData) {
   let reopenedCustomers = 0;
   let errorRows = importRowRecords.length;
 
-  for (let i = 0; i < toInsert.length; i += INSERT_BATCH) {
-    const chunk = toInsert.slice(i, i + INSERT_BATCH);
+  const recordNewCustomer = (
+    item: InsertItem,
+    customerId: string,
+    activityRows: {
+      customer_id: string;
+      user_id: string;
+      activity_type: string;
+      description: string;
+    }[]
+  ) => {
+    newCustomers++;
+    registerMatchKeys(matchLookup, customerId, item.customFields, matchColumns);
+    importRowRecords.push({
+      import_id: importRecord.id,
+      row_number: item.rowNumber,
+      raw_data: item.raw,
+      status: "new",
+      customer_id: customerId,
+    });
+    activityRows.push({
+      customer_id: customerId,
+      user_id: profile.id,
+      activity_type: "import",
+      description: `Imported from ${fileName || file.name}`,
+    });
+  };
+
+  const insertOne = async (
+    item: InsertItem,
+    activityRows: {
+      customer_id: string;
+      user_id: string;
+      activity_type: string;
+      description: string;
+    }[]
+  ) => {
     const { data, error } = await admin
       .from("customers")
-      .insert(chunk.map((item) => item.payload))
-      .select("id");
+      .insert(item.payload)
+      .select("id")
+      .single();
 
     if (error) {
-      for (const item of chunk) {
-        importRowRecords.push({
-          import_id: importRecord.id,
-          row_number: item.rowNumber,
-          raw_data: item.raw,
-          status: "error",
-          error_message: error.message,
-        });
-        errorRows++;
-      }
-      continue;
+      importRowRecords.push({
+        import_id: importRecord.id,
+        row_number: item.rowNumber,
+        raw_data: item.raw,
+        status: "error",
+        error_message: error.message,
+      });
+      errorRows++;
+      return;
     }
 
+    if (!data?.id) {
+      importRowRecords.push({
+        import_id: importRecord.id,
+        row_number: item.rowNumber,
+        raw_data: item.raw,
+        status: "error",
+        error_message: "Insert succeeded but no customer id returned",
+      });
+      errorRows++;
+      return;
+    }
+
+    recordNewCustomer(item, data.id, activityRows);
+  };
+
+  for (let i = 0; i < toInsert.length; i += INSERT_BATCH) {
+    const chunk = toInsert.slice(i, i + INSERT_BATCH);
     const activityRows: {
       customer_id: string;
       user_id: string;
@@ -312,36 +362,33 @@ async function runConfirmImport(formData: FormData) {
       description: string;
     }[] = [];
 
-    chunk.forEach((item, index) => {
-      const customerId = data[index]?.id;
-      if (!customerId) {
-        importRowRecords.push({
-          import_id: importRecord.id,
-          row_number: item.rowNumber,
-          raw_data: item.raw,
-          status: "error",
-          error_message: "Insert succeeded but no customer id returned",
-        });
-        errorRows++;
-        return;
-      }
+    const { data, error } = await admin
+      .from("customers")
+      .insert(chunk.map((item) => item.payload))
+      .select("id");
 
-      newCustomers++;
-      registerMatchKeys(matchLookup, customerId, item.customFields, matchColumns);
-      importRowRecords.push({
-        import_id: importRecord.id,
-        row_number: item.rowNumber,
-        raw_data: item.raw,
-        status: "new",
-        customer_id: customerId,
+    if (error) {
+      // One bad row in a batch used to fail every row in the chunk — retry individually.
+      for (const item of chunk) {
+        await insertOne(item, activityRows);
+      }
+    } else {
+      chunk.forEach((item, index) => {
+        const customerId = data[index]?.id;
+        if (!customerId) {
+          importRowRecords.push({
+            import_id: importRecord.id,
+            row_number: item.rowNumber,
+            raw_data: item.raw,
+            status: "error",
+            error_message: "Insert succeeded but no customer id returned",
+          });
+          errorRows++;
+          return;
+        }
+        recordNewCustomer(item, customerId, activityRows);
       });
-      activityRows.push({
-        customer_id: customerId,
-        user_id: profile.id,
-        activity_type: "import",
-        description: `Imported from ${fileName || file.name}`,
-      });
-    });
+    }
 
     if (activityRows.length > 0) {
       const { error: activityError } = await admin

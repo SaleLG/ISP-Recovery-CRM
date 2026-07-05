@@ -8,9 +8,6 @@
     "start": "next start",
     "lint": "next lint",
     "docs:user-guide": "node scripts/generate-user-guide-docx.mjs",
-    "docs:scenario": "node scripts/generate-scenario-docx.mjs",
-    "docs:workflow": "node scripts/generate-workflow-reference-docx.mjs",
-    "docs:beginner-guide": "node scripts/generate-beginner-guide-docx.mjs",
     "docs:finalize": "node scripts/finalize-docs.mjs"
   },
   "dependencies": {
