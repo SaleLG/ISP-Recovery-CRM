@@ -3,7 +3,9 @@ import { Typography, Box, Skeleton, Alert } from "@mui/material";
 import CustomerTable from "@/components/customers/CustomerTable";
 import { getCustomers } from "@/actions/customers";
 import { getISPsWithCounts } from "@/actions/isps";
+import { getTeamMembers } from "@/actions/team";
 import { requireRole } from "@/lib/auth";
+import { normalizeRole } from "@/lib/constants";
 
 function TableSkeleton() {
   return (
@@ -25,10 +27,14 @@ export default async function JuniorSalesPage({
     "va_manager",
     "junior_sales",
   ]);
+  const role = normalizeRole(profile.role);
+  const canManage =
+    role === "admin" || role === "manager" || role === "va_manager";
   const { isp } = await searchParams;
-  const [customers, isps] = await Promise.all([
+  const [customers, isps, juniorTeamMembers] = await Promise.all([
     getCustomers({ assigned_team: "Junior Sales Team" }),
     getISPsWithCounts(),
+    canManage ? getTeamMembers("Junior Sales Team") : Promise.resolve([]),
   ]);
 
   const selectedIspId =
@@ -50,6 +56,14 @@ export default async function JuniorSalesPage({
         customers.
       </Typography>
 
+      {canManage && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Delegate leads to a junior rep with the <strong>Assigned To</strong>{" "}
+          column, or select rows to <strong>Delegate selected</strong> or{" "}
+          <strong>Auto-distribute</strong> the available leads.
+        </Alert>
+      )}
+
       {isps.length === 0 ? (
         <Alert severity="info">
           No ISPs configured yet. Contact an admin to set up ISPs and columns.
@@ -64,6 +78,8 @@ export default async function JuniorSalesPage({
             defaultTeam="Junior Sales Team"
             showAssigneeFilter
             showAssigneeColumn
+            allowBulkAssign={canManage}
+            juniorMembers={juniorTeamMembers}
             currentUserId={profile.id}
             defaultIspId={selectedIspId}
             ispSelectorVariant="searchable"
